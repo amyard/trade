@@ -1,4 +1,7 @@
-@using ApexCharts
+@using Plotly.Blazor
+@using Plotly.Blazor.Traces
+@using Plotly.Blazor.LayoutLib
+@using Plotly.Blazor.ConfigLib
 @using global::MarketParse.Services
 @using Binance.Net.Enums
 @inject BinanceFuturesService BinanceService
@@ -56,33 +59,8 @@
     }
     else if (chartData.Any())
     {
-        <ApexChart TItem="ChartDataPoint"
-                   Title="@($"{Symbol} OHLC Chart")"
-                   @ref="chart"
-                   Options="chartOptions"
-                   Height="500">
-            
-            <ApexPointSeries TItem="ChartDataPoint"
-                             Items="chartData"
-                             Name="Close"
-                             SeriesType="SeriesType.Line"
-                             XValue="@(e => e.Time)"
-                             YValue="@(e => (decimal?)e.Close)" />
-            
-            <ApexPointSeries TItem="ChartDataPoint"
-                             Items="chartData"
-                             Name="High"
-                             SeriesType="SeriesType.Line"
-                             XValue="@(e => e.Time)"
-                             YValue="@(e => (decimal?)e.High)" />
-            
-            <ApexPointSeries TItem="ChartDataPoint"
-                             Items="chartData"
-                             Name="Low"
-                             SeriesType="SeriesType.Line"
-                             XValue="@(e => e.Time)"
-                             YValue="@(e => (decimal?)e.Low)" />
-        </ApexChart>
+        <PlotlyChart @bind-Config="plotlyChart" @bind-Layout="layout" @bind-Data="data" 
+                     style="height: 500px; width: 100%;" />
 
         <div class="chart-info mt-2">
             <small class="text-muted">
@@ -138,9 +116,11 @@
     [Parameter]
     public int InitialMinutes { get; set; } = 60;
 
-    private ApexChart<ChartDataPoint>? chart;
-    private ApexChartOptions<ChartDataPoint> chartOptions = new();
-    private List<ChartDataPoint> chartData = new();
+    private Config plotlyChart = new();
+    private Layout layout = new();
+    private IList<ITrace> data = new List<ITrace>();
+    
+    private List<CandlestickData> chartData = new();
     private List<KlineData> klineHistory = new();
     
     private int selectedTimeRange = 60;
@@ -153,66 +133,24 @@
     protected override async Task OnInitializedAsync()
     {
         selectedTimeRange = InitialMinutes;
-        InitializeChartOptions();
+        InitializeChartConfig();
         await LoadChartData();
     }
 
-    private void InitializeChartOptions()
+    private void InitializeChartConfig()
     {
-        chartOptions = new ApexChartOptions<ChartDataPoint>
+        plotlyChart = new Config
         {
-            Theme = new Theme { Mode = Mode.Light },
-            Chart = new Chart
+            Responsive = true
+        };
+
+        layout = new Layout
+        {
+            Title = new Title
             {
-                Toolbar = new Toolbar
-                {
-                    Show = true,
-                    Tools = new Tools
-                    {
-                        Download = true,
-                        Selection = true,
-                        Zoom = true,
-                        Zoomin = true,
-                        Zoomout = true,
-                        Pan = true,
-                        Reset = true
-                    }
-                },
-                Animations = new Animations { Enabled = true }
+                Text = $"{Symbol} Candlestick Chart"
             },
-            Xaxis = new XAxis
-            {
-                Type = XAxisType.Datetime,
-                Labels = new XAxisLabels
-                {
-                    DatetimeUTC = false,
-                    Format = "HH:mm"
-                }
-            },
-            Yaxis = new List<YAxis>
-            {
-                new YAxis
-                {
-                    Labels = new YAxisLabels
-                    {
-                        Formatter = "function(value) { return '$' + value.toFixed(2); }"
-                    },
-                    Tooltip = new YAxisTooltip { Enabled = true }
-                }
-            },
-            Tooltip = new Tooltip
-            {
-                Enabled = true,
-                X = new TooltipX { Format = "dd MMM HH:mm" }
-            },
-            Stroke = new Stroke 
-            { 
-                Width = new List<double> { 2, 1, 1 },
-                Curve = Curve.Straight
-            },
-            Grid = new Grid { Show = true },
-            Colors = new List<string> { "#0d6efd", "#28a745", "#dc3545" },
-            Legend = new Legend { Show = true, Position = LegendPosition.Top }
+            HoverMode = HoverModeEnum.Closest
         };
     }
 
@@ -278,12 +216,6 @@
             {
                 klineHistory.InsertRange(0, olderKlines.OrderBy(k => k.OpenTime));
                 UpdateChartData();
-                
-                if (chart is not null)
-                {
-                    await chart.UpdateSeriesAsync();
-                }
-                
                 Logger.LogInformation($"Loaded {olderKlines.Count} additional klines");
             }
         }
@@ -300,7 +232,7 @@
 
     private void UpdateChartData()
     {
-        chartData = klineHistory.Select(k => new ChartDataPoint
+        chartData = klineHistory.Select(k => new CandlestickData
         {
             Time = k.OpenTime,
             Open = k.Open,
@@ -314,7 +246,27 @@
         {
             oldestTime = chartData.First().Time;
             latestTime = chartData.Last().Time;
+            
+            // Update Plotly chart data
+            UpdatePlotlyData();
         }
+    }
+
+    private void UpdatePlotlyData()
+    {
+        data.Clear();
+
+        var candlestick = new Candlestick
+        {
+            Name = Symbol,
+            X = chartData.Select(c => (object)c.Time).ToList(),
+            Open = chartData.Select(c => (object?)c.Open).ToList(),
+            High = chartData.Select(c => (object?)c.High).ToList(),
+            Low = chartData.Select(c => (object?)c.Low).ToList(),
+            Close = chartData.Select(c => (object?)c.Close).ToList()
+        };
+
+        data.Add(candlestick);
     }
 
     private async Task OnTimeRangeChanged()
@@ -329,10 +281,9 @@
 
     private async Task RefreshChart()
     {
-        if (chart is not null)
-        {
-            await chart.RenderAsync();
-        }
+        UpdatePlotlyData();
+        StateHasChanged();
+        await Task.CompletedTask;
     }
 
     public async Task AddRealtimeData(KlineData newKline)
@@ -356,12 +307,6 @@
             }
 
             UpdateChartData();
-            
-            if (chart is not null)
-            {
-                await chart.UpdateSeriesAsync();
-            }
-            
             await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
@@ -370,7 +315,7 @@
         }
     }
 
-    public class ChartDataPoint
+    public class CandlestickData
     {
         public DateTime Time { get; set; }
         public decimal Open { get; set; }
