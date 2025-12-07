@@ -1,0 +1,382 @@
+@using ApexCharts
+@using global::MarketParse.Services
+@using Binance.Net.Enums
+@inject BinanceFuturesService BinanceService
+@inject ILogger<PriceChart> Logger
+
+<div class="chart-container">
+    <div class="chart-controls mb-3">
+        <div class="row">
+            <div class="col-md-4">
+                <label class="form-label">Time Range</label>
+                <select class="form-select form-select-sm" @bind="selectedTimeRange" @bind:after="OnTimeRangeChanged">
+                    <option value="15">15 minutes</option>
+                    <option value="30">30 minutes</option>
+                    <option value="60">1 hour</option>
+                    <option value="120">2 hours</option>
+                    <option value="240">4 hours</option>
+                    <option value="480">8 hours</option>
+                    <option value="1440">24 hours</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Interval</label>
+                <select class="form-select form-select-sm" @bind="selectedInterval" @bind:after="OnIntervalChanged">
+                    <option value="@KlineInterval.OneMinute">1 minute</option>
+                    <option value="@KlineInterval.ThreeMinutes">3 minutes</option>
+                    <option value="@KlineInterval.FiveMinutes">5 minutes</option>
+                    <option value="@KlineInterval.FifteenMinutes">15 minutes</option>
+                    <option value="@KlineInterval.ThirtyMinutes">30 minutes</option>
+                    <option value="@KlineInterval.OneHour">1 hour</option>
+                </select>
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+                <button class="btn btn-primary btn-sm me-2" @onclick="LoadMoreHistoricalData" disabled="@isLoadingMore">
+                    @if (isLoadingMore)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                    }
+                    Load Earlier
+                </button>
+                <button class="btn btn-secondary btn-sm" @onclick="RefreshChart">
+                    Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading && chartData.Count == 0)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading chart...</span>
+            </div>
+            <p class="mt-2">Loading chart data...</p>
+        </div>
+    }
+    else if (chartData.Any())
+    {
+        <ApexChart TItem="ChartDataPoint"
+                   Title="@($"{Symbol} OHLC Chart")"
+                   @ref="chart"
+                   Options="chartOptions"
+                   Height="500">
+            
+            <ApexPointSeries TItem="ChartDataPoint"
+                             Items="chartData"
+                             Name="Close"
+                             SeriesType="SeriesType.Line"
+                             XValue="@(e => e.Time)"
+                             YValue="@(e => (decimal?)e.Close)" />
+            
+            <ApexPointSeries TItem="ChartDataPoint"
+                             Items="chartData"
+                             Name="High"
+                             SeriesType="SeriesType.Line"
+                             XValue="@(e => e.Time)"
+                             YValue="@(e => (decimal?)e.High)" />
+            
+            <ApexPointSeries TItem="ChartDataPoint"
+                             Items="chartData"
+                             Name="Low"
+                             SeriesType="SeriesType.Line"
+                             XValue="@(e => e.Time)"
+                             YValue="@(e => (decimal?)e.Low)" />
+        </ApexChart>
+
+        <div class="chart-info mt-2">
+            <small class="text-muted">
+                <strong>Data Points:</strong> @chartData.Count | 
+                <strong>From:</strong> @oldestTime.ToString("yyyy-MM-dd HH:mm") | 
+                <strong>To:</strong> @latestTime.ToString("yyyy-MM-dd HH:mm")
+                @if (chartData.Any())
+                {
+                    <span class="ms-3">
+                        <strong>Latest:</strong> <span class="text-primary">$@chartData.Last().Close.ToString("N2")</span>
+                    </span>
+                    <span class="ms-2">
+                        <strong>High:</strong> <span class="text-success">$@chartData.Max(c => c.High).ToString("N2")</span>
+                    </span>
+                    <span class="ms-2">
+                        <strong>Low:</strong> <span class="text-danger">$@chartData.Min(c => c.Low).ToString("N2")</span>
+                    </span>
+                }
+            </small>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-warning">
+            No chart data available for @Symbol
+        </div>
+    }
+</div>
+
+<style>
+    .chart-container {
+        background-color: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .chart-controls {
+        border-bottom: 1px solid #e0e0e0;
+        padding-bottom: 15px;
+    }
+
+    .chart-info {
+        border-top: 1px solid #e0e0e0;
+        padding-top: 10px;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string Symbol { get; set; } = "BTCUSDT";
+
+    [Parameter]
+    public int InitialMinutes { get; set; } = 60;
+
+    private ApexChart<ChartDataPoint>? chart;
+    private ApexChartOptions<ChartDataPoint> chartOptions = new();
+    private List<ChartDataPoint> chartData = new();
+    private List<KlineData> klineHistory = new();
+    
+    private int selectedTimeRange = 60;
+    private KlineInterval selectedInterval = KlineInterval.OneMinute;
+    private bool isLoading = false;
+    private bool isLoadingMore = false;
+    private DateTime oldestTime = DateTime.UtcNow;
+    private DateTime latestTime = DateTime.UtcNow;
+
+    protected override async Task OnInitializedAsync()
+    {
+        selectedTimeRange = InitialMinutes;
+        InitializeChartOptions();
+        await LoadChartData();
+    }
+
+    private void InitializeChartOptions()
+    {
+        chartOptions = new ApexChartOptions<ChartDataPoint>
+        {
+            Theme = new Theme { Mode = Mode.Light },
+            Chart = new Chart
+            {
+                Toolbar = new Toolbar
+                {
+                    Show = true,
+                    Tools = new Tools
+                    {
+                        Download = true,
+                        Selection = true,
+                        Zoom = true,
+                        Zoomin = true,
+                        Zoomout = true,
+                        Pan = true,
+                        Reset = true
+                    }
+                },
+                Animations = new Animations { Enabled = true }
+            },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    DatetimeUTC = false,
+                    Format = "HH:mm"
+                }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Labels = new YAxisLabels
+                    {
+                        Formatter = "function(value) { return '$' + value.toFixed(2); }"
+                    },
+                    Tooltip = new YAxisTooltip { Enabled = true }
+                }
+            },
+            Tooltip = new Tooltip
+            {
+                Enabled = true,
+                X = new TooltipX { Format = "dd MMM HH:mm" }
+            },
+            Stroke = new Stroke 
+            { 
+                Width = new List<double> { 2, 1, 1 },
+                Curve = Curve.Straight
+            },
+            Grid = new Grid { Show = true },
+            Colors = new List<string> { "#0d6efd", "#28a745", "#dc3545" },
+            Legend = new Legend { Show = true, Position = LegendPosition.Top }
+        };
+    }
+
+    private async Task LoadChartData()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var endTime = DateTime.UtcNow;
+            var startTime = endTime.AddMinutes(-selectedTimeRange);
+
+            var klines = await BinanceService.GetKlineDataAsync(
+                Symbol,
+                selectedInterval,
+                startTime,
+                endTime,
+                null
+            );
+
+            if (klines.Any())
+            {
+                klineHistory = klines.OrderBy(k => k.OpenTime).ToList();
+                UpdateChartData();
+                Logger.LogInformation($"Loaded {klineHistory.Count} klines for chart");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading chart data");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadMoreHistoricalData()
+    {
+        if (isLoadingMore || !klineHistory.Any())
+            return;
+
+        isLoadingMore = true;
+        StateHasChanged();
+
+        try
+        {
+            var oldestKline = klineHistory.First();
+            var endTime = oldestKline.OpenTime.AddSeconds(-1);
+            var startTime = endTime.AddMinutes(-selectedTimeRange);
+
+            var olderKlines = await BinanceService.GetKlineDataAsync(
+                Symbol,
+                selectedInterval,
+                startTime,
+                endTime,
+                null
+            );
+
+            if (olderKlines.Any())
+            {
+                klineHistory.InsertRange(0, olderKlines.OrderBy(k => k.OpenTime));
+                UpdateChartData();
+                
+                if (chart is not null)
+                {
+                    await chart.UpdateSeriesAsync();
+                }
+                
+                Logger.LogInformation($"Loaded {olderKlines.Count} additional klines");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading more historical data");
+        }
+        finally
+        {
+            isLoadingMore = false;
+            StateHasChanged();
+        }
+    }
+
+    private void UpdateChartData()
+    {
+        chartData = klineHistory.Select(k => new ChartDataPoint
+        {
+            Time = k.OpenTime,
+            Open = k.Open,
+            High = k.High,
+            Low = k.Low,
+            Close = k.Close,
+            Volume = k.Volume
+        }).ToList();
+
+        if (chartData.Any())
+        {
+            oldestTime = chartData.First().Time;
+            latestTime = chartData.Last().Time;
+        }
+    }
+
+    private async Task OnTimeRangeChanged()
+    {
+        await LoadChartData();
+    }
+
+    private async Task OnIntervalChanged()
+    {
+        await LoadChartData();
+    }
+
+    private async Task RefreshChart()
+    {
+        if (chart is not null)
+        {
+            await chart.RenderAsync();
+        }
+    }
+
+    public async Task AddRealtimeData(KlineData newKline)
+    {
+        try
+        {
+            var existingIndex = klineHistory.FindIndex(k => k.OpenTime == newKline.OpenTime);
+            
+            if (existingIndex >= 0)
+            {
+                klineHistory[existingIndex] = newKline;
+            }
+            else
+            {
+                klineHistory.Add(newKline);
+                klineHistory = klineHistory.OrderBy(k => k.OpenTime).ToList();
+                
+                // Keep only relevant data based on selected time range
+                var cutoffTime = DateTime.UtcNow.AddMinutes(-selectedTimeRange * 2);
+                klineHistory = klineHistory.Where(k => k.OpenTime >= cutoffTime).ToList();
+            }
+
+            UpdateChartData();
+            
+            if (chart is not null)
+            {
+                await chart.UpdateSeriesAsync();
+            }
+            
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error adding real-time data to chart");
+        }
+    }
+
+    public class ChartDataPoint
+    {
+        public DateTime Time { get; set; }
+        public decimal Open { get; set; }
+        public decimal High { get; set; }
+        public decimal Low { get; set; }
+        public decimal Close { get; set; }
+        public decimal Volume { get; set; }
+    }
+}

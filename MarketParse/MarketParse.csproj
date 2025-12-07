@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Binance.Net" Version="11.11.0" />
+    <PackageReference Include="Blazor-ApexCharts" Version="6.0.2" />
   </ItemGroup>
 
   <ItemGroup>

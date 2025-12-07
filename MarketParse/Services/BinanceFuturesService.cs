@@ -2,6 +2,7 @@ using Binance.Net.Clients;
 using Binance.Net.Interfaces;
 using CryptoExchange.Net.Sockets;
 using CryptoExchange.Net.Objects.Sockets;
+using Binance.Net.Enums;
 
 namespace MarketParse.Services;
 
@@ -124,30 +125,29 @@ public class BinanceFuturesService
     }
 
     /// <summary>
-    /// Get historical Kline data for the last 120 minutes for SOL/USDT pair on Futures market
+    /// Get kline data with flexible parameters for charting
     /// </summary>
-    public async Task<List<KlineData>> GetHistoricalKlinesAsync(string symbol = "SOLUSDT", int minutes = 120)
+    public async Task<List<KlineData>> GetKlineDataAsync(
+        string symbol,
+        KlineInterval interval,
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        int? limit = null)
     {
         var result = new List<KlineData>();
 
         try
         {
-            var endTime = DateTime.UtcNow;
-            var startTime = endTime.AddMinutes(-minutes);
-
-            // Get historical data from Binance Futures (1-minute candles)
             var klinesResult = await _restClient.UsdFuturesApi.ExchangeData.GetKlinesAsync(
                 symbol: symbol,
-                interval: Binance.Net.Enums.KlineInterval.OneMinute,
+                interval: interval,
                 startTime: startTime,
                 endTime: endTime,
-                limit: minutes
+                limit: limit
             );
 
             if (klinesResult.Success && klinesResult.Data != null)
             {
-                _logger.LogInformation($"Received {klinesResult.Data.Count()} candles for {symbol}");
-
                 result = klinesResult.Data.Select(k => new KlineData
                 {
                     OpenTime = k.OpenTime,
@@ -161,18 +161,37 @@ public class BinanceFuturesService
                     QuoteVolume = k.QuoteVolume,
                     TradeCount = k.TradeCount
                 }).ToList();
+
+                _logger.LogInformation($"Retrieved {result.Count} klines for {symbol}");
             }
             else
             {
-                _logger.LogError($"Error getting data: {klinesResult.Error?.Message}");
+                _logger.LogError($"Error getting klines: {klinesResult.Error?.Message}");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error while getting historical data");
+            _logger.LogError(ex, "Error while getting kline data");
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Get historical Kline data for the last 120 minutes for SOL/USDT pair on Futures market
+    /// </summary>
+    public async Task<List<KlineData>> GetHistoricalKlinesAsync(string symbol = "SOLUSDT", int minutes = 120)
+    {
+        var endTime = DateTime.UtcNow;
+        var startTime = endTime.AddMinutes(-minutes);
+
+        return await GetKlineDataAsync(
+            symbol,
+            KlineInterval.OneMinute,
+            startTime,
+            endTime,
+            minutes
+        );
     }
 
     /// <summary>

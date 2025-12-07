@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @using global::MarketParse.Services
 @using global::MarketParse.Models
+@using global::MarketParse.Components.Shared
 @using CryptoExchange.Net.Objects.Sockets
 @inject TradingPairsService TradingPairsService
 @inject BinanceFuturesService BinanceService
@@ -22,7 +23,17 @@
     <h1>@tradingPair.DisplayName</h1>
     <p class="text-muted">Symbol: @tradingPair.Symbol</p>
 
+    <!-- Price Chart Section -->
+    <div class="mb-4">
+        <h3>Price Chart</h3>
+        <PriceChart @ref="priceChart" 
+                    Symbol="@tradingPair.Symbol" 
+                    InitialMinutes="60" />
+    </div>
+
+    <!-- WebSocket Controls -->
     <div class="mb-3">
+        <h3>Real-Time Data Controls</h3>
         <button class="btn btn-primary" @onclick="LoadHistoricalData" disabled="@isLoading">
             @if (isLoading)
             {
@@ -55,7 +66,7 @@
 
     @if (klineDataList.Any())
     {
-        <h3>Historical Data (Last 120 Minutes)</h3>
+        <h3>Historical Data Table (Last 120 Minutes)</h3>
         
         <div class="mb-3">
             <strong>Total Candles:</strong> @klineDataList.Count
@@ -160,6 +171,7 @@ else
     private bool isLoading = false;
     private bool isWebSocketConnected = false;
     private string statusMessage = string.Empty;
+    private PriceChart? priceChart;
 
     protected override void OnInitialized()
     {
@@ -255,10 +267,17 @@ else
         }
     }
 
-    private void OnKlineUpdate(KlineData kline)
+    private async void OnKlineUpdate(KlineData kline)
     {
         latestKline = kline;
 
+        // Update chart with real-time data
+        if (priceChart is not null)
+        {
+            await priceChart.AddRealtimeData(kline);
+        }
+
+        // Update table data
         var existingKline = klineDataList.FirstOrDefault(k => 
             k.OpenTime == kline.OpenTime && k.Symbol == kline.Symbol);
 
@@ -280,7 +299,7 @@ else
             }
         }
 
-        InvokeAsync(StateHasChanged);
+        await InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()
