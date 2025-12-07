@@ -10,6 +10,9 @@ builder.Services.AddRazorComponents()
 // Register Binance Futures service
 builder.Services.AddScoped<BinanceFuturesService>();
 
+// Register Trading Pairs service
+builder.Services.AddSingleton<TradingPairsService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

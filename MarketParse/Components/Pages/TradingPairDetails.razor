@@ -1,0 +1,293 @@
+@page "/trading-pair/{Symbol}"
+@rendermode InteractiveServer
+@using global::MarketParse.Services
+@using global::MarketParse.Models
+@using CryptoExchange.Net.Objects.Sockets
+@inject TradingPairsService TradingPairsService
+@inject BinanceFuturesService BinanceService
+@inject ILogger<TradingPairDetails> Logger
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>@pairDisplayName - Binance Futures</PageTitle>
+
+<div class="mb-3">
+    <button class="btn btn-secondary" @onclick="GoBack">
+        <span class="bi bi-arrow-left"></span> Back to Trading Pairs
+    </button>
+</div>
+
+@if (tradingPair is not null)
+{
+    <h1>@tradingPair.DisplayName</h1>
+    <p class="text-muted">Symbol: @tradingPair.Symbol</p>
+
+    <div class="mb-3">
+        <button class="btn btn-primary" @onclick="LoadHistoricalData" disabled="@isLoading">
+            @if (isLoading)
+            {
+                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            }
+            Load Last 120 Minutes Data
+        </button>
+
+        @if (!isWebSocketConnected)
+        {
+            <button class="btn btn-success ms-2" @onclick="StartWebSocket" disabled="@isLoading">
+                Connect WebSocket
+            </button>
+        }
+        else
+        {
+            <button class="btn btn-danger ms-2" @onclick="StopWebSocket">
+                Disconnect WebSocket
+            </button>
+            <span class="badge bg-success ms-2">WebSocket Active</span>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert alert-info">
+            @statusMessage
+        </div>
+    }
+
+    @if (klineDataList.Any())
+    {
+        <h3>Historical Data (Last 120 Minutes)</h3>
+        
+        <div class="mb-3">
+            <strong>Total Candles:</strong> @klineDataList.Count
+        </div>
+
+        <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+            <table class="table table-striped table-hover">
+                <thead style="position: sticky; top: 0; background-color: white; z-index: 1;">
+                    <tr>
+                        <th>Open Time</th>
+                        <th>Close Time</th>
+                        <th>Open</th>
+                        <th>High</th>
+                        <th>Low</th>
+                        <th>Close</th>
+                        <th>Volume</th>
+                        <th>Trades</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var kline in klineDataList.OrderByDescending(k => k.OpenTime))
+                    {
+                        <tr class="@(kline.IsClosed ? "" : "table-warning")">
+                            <td>@kline.OpenTime.ToString("HH:mm:ss")</td>
+                            <td>@kline.CloseTime.ToString("HH:mm:ss")</td>
+                            <td>@kline.Open.ToString("F2")</td>
+                            <td>@kline.High.ToString("F2")</td>
+                            <td>@kline.Low.ToString("F2")</td>
+                            <td><strong>@kline.Close.ToString("F2")</strong></td>
+                            <td>@kline.Volume.ToString("F2")</td>
+                            <td>@kline.TradeCount</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (latestKline is not null)
+        {
+            <div class="card mt-3">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">Latest Update (WebSocket)</h4>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <strong>Symbol:</strong> @latestKline.Symbol
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Close Price:</strong> <span class="fs-4 text-primary">@latestKline.Close.ToString("F2")</span>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Volume:</strong> @latestKline.Volume.ToString("F2")
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Time:</strong> @latestKline.OpenTime.ToString("HH:mm:ss")
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-3">
+                            <strong>Open:</strong> @latestKline.Open.ToString("F2")
+                        </div>
+                        <div class="col-md-3">
+                            <strong>High:</strong> @latestKline.High.ToString("F2")
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Low:</strong> @latestKline.Low.ToString("F2")
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Status:</strong> 
+                            @if (latestKline.IsClosed)
+                            {
+                                <span class="badge bg-success">Closed</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning">In Progress</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+}
+else
+{
+    <div class="alert alert-warning">
+        Trading pair "@Symbol" not found.
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Symbol { get; set; } = string.Empty;
+
+    private TradingPair? tradingPair;
+    private string pairDisplayName = string.Empty;
+    private List<KlineData> klineDataList = new();
+    private KlineData? latestKline;
+    private UpdateSubscription? webSocketSubscription;
+    private bool isLoading = false;
+    private bool isWebSocketConnected = false;
+    private string statusMessage = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        tradingPair = TradingPairsService.GetTradingPairBySymbol(Symbol);
+        pairDisplayName = tradingPair?.DisplayName ?? Symbol;
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/trading-pairs");
+    }
+
+    private async Task LoadHistoricalData()
+    {
+        if (tradingPair is null) return;
+
+        isLoading = true;
+        statusMessage = "Loading data...";
+        StateHasChanged();
+
+        try
+        {
+            klineDataList = await BinanceService.GetHistoricalKlinesAsync(tradingPair.Symbol, 120);
+            
+            if (klineDataList.Any())
+            {
+                statusMessage = $"Successfully loaded {klineDataList.Count} candles";
+                latestKline = klineDataList.OrderByDescending(k => k.OpenTime).FirstOrDefault();
+            }
+            else
+            {
+                statusMessage = "Failed to get data. Please check your internet connection.";
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            Logger.LogError(ex, "Error loading data");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartWebSocket()
+    {
+        if (tradingPair is null) return;
+
+        isLoading = true;
+        statusMessage = "Connecting to WebSocket...";
+        StateHasChanged();
+
+        try
+        {
+            webSocketSubscription = await BinanceService.SubscribeToKlineUpdatesAsync(
+                tradingPair.Symbol,
+                OnKlineUpdate
+            );
+
+            if (webSocketSubscription is not null)
+            {
+                isWebSocketConnected = true;
+                statusMessage = "WebSocket connected. Receiving real-time updates...";
+            }
+            else
+            {
+                statusMessage = "Failed to connect to WebSocket";
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"WebSocket error: {ex.Message}";
+            Logger.LogError(ex, "Error connecting to WebSocket");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StopWebSocket()
+    {
+        if (webSocketSubscription is not null)
+        {
+            await BinanceService.UnsubscribeAsync(webSocketSubscription);
+            webSocketSubscription = null;
+            isWebSocketConnected = false;
+            statusMessage = "WebSocket disconnected";
+            StateHasChanged();
+        }
+    }
+
+    private void OnKlineUpdate(KlineData kline)
+    {
+        latestKline = kline;
+
+        var existingKline = klineDataList.FirstOrDefault(k => 
+            k.OpenTime == kline.OpenTime && k.Symbol == kline.Symbol);
+
+        if (existingKline != null)
+        {
+            var index = klineDataList.IndexOf(existingKline);
+            klineDataList[index] = kline;
+        }
+        else
+        {
+            klineDataList.Add(kline);
+            
+            if (klineDataList.Count > 120)
+            {
+                klineDataList = klineDataList
+                    .OrderByDescending(k => k.OpenTime)
+                    .Take(120)
+                    .ToList();
+            }
+        }
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        if (webSocketSubscription is not null)
+        {
+            _ = StopWebSocket();
+        }
+    }
+}

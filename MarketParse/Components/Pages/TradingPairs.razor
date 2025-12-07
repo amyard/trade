@@ -1,0 +1,106 @@
+@page "/trading-pairs"
+@rendermode InteractiveServer
+@using global::MarketParse.Services
+@using global::MarketParse.Models
+@inject TradingPairsService TradingPairsService
+@inject NavigationManager Navigation
+
+<PageTitle>Trading Pairs</PageTitle>
+
+<h1>Trading Pairs</h1>
+
+<div class="mb-3">
+    <div class="row">
+        <div class="col-md-6">
+            <input type="text" 
+                   class="form-control" 
+                   placeholder="Search trading pairs..." 
+                   @bind="searchQuery" 
+                   @bind:event="oninput"
+                   @onkeyup="FilterPairs" />
+        </div>
+        <div class="col-md-6">
+            <span class="text-muted">Total pairs: @filteredPairs.Count</span>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    @if (filteredPairs.Any())
+    {
+        @foreach (var pair in filteredPairs)
+        {
+            <div class="col-md-4 col-lg-3 mb-3">
+                <div class="card h-100 trading-pair-card" @onclick="() => NavigateToPairDetails(pair.Symbol)">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">@pair.DisplayName</h5>
+                        <p class="card-text text-muted">@pair.Symbol</p>
+                        <div class="d-grid">
+                            <button class="btn btn-primary btn-sm">View Details</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="col-12">
+            <div class="alert alert-info">
+                No trading pairs found matching "@searchQuery"
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .trading-pair-card {
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .trading-pair-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .trading-pair-card .card-body {
+        padding: 1.5rem;
+    }
+
+    .trading-pair-card .card-title {
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+</style>
+
+@code {
+    private List<TradingPair> allPairs = new();
+    private List<TradingPair> filteredPairs = new();
+    private string searchQuery = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        allPairs = TradingPairsService.GetAllTradingPairs();
+        filteredPairs = allPairs;
+    }
+
+    private void FilterPairs()
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery))
+        {
+            filteredPairs = allPairs;
+        }
+        else
+        {
+            filteredPairs = TradingPairsService.SearchTradingPairs(searchQuery);
+        }
+        StateHasChanged();
+    }
+
+    private void NavigateToPairDetails(string symbol)
+    {
+        Navigation.NavigateTo($"/trading-pair/{symbol}");
+    }
+}
