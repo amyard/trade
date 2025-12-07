@@ -1,10 +1,14 @@
 using MarketParse.Components;
+using MarketParse.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// Register Binance Futures service
+builder.Services.AddScoped<BinanceFuturesService>();
 
 var app = builder.Build();
 
