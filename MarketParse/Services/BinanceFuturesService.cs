@@ -19,6 +19,111 @@ public class BinanceFuturesService
     }
 
     /// <summary>
+    /// Get current price for a symbol
+    /// </summary>
+    public async Task<decimal?> GetCurrentPriceAsync(string symbol)
+    {
+        try
+        {
+            var priceResult = await _restClient.UsdFuturesApi.ExchangeData.GetPriceAsync(symbol);
+            
+            if (priceResult.Success && priceResult.Data != null)
+            {
+                return priceResult.Data.Price;
+            }
+            else
+            {
+                _logger.LogError($"Error getting price for {symbol}: {priceResult.Error?.Message}");
+                return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error while getting price for {symbol}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Get current prices for multiple symbols
+    /// </summary>
+    public async Task<Dictionary<string, decimal>> GetCurrentPricesAsync(IEnumerable<string> symbols)
+    {
+        var result = new Dictionary<string, decimal>();
+
+        try
+        {
+            var pricesResult = await _restClient.UsdFuturesApi.ExchangeData.GetPricesAsync();
+            
+            if (pricesResult.Success && pricesResult.Data != null)
+            {
+                foreach (var symbol in symbols)
+                {
+                    var price = pricesResult.Data.FirstOrDefault(p => p.Symbol == symbol);
+                    if (price != null)
+                    {
+                        result[symbol] = price.Price;
+                    }
+                }
+                
+                _logger.LogInformation($"Retrieved prices for {result.Count} symbols");
+            }
+            else
+            {
+                _logger.LogError($"Error getting prices: {pricesResult.Error?.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error while getting prices");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Subscribe to real-time price updates for multiple symbols via WebSocket
+    /// </summary>
+    public async Task<UpdateSubscription?> SubscribeToPriceUpdatesAsync(
+        IEnumerable<string> symbols,
+        Action<string, decimal>? onPriceUpdate = null)
+    {
+        try
+        {
+            var symbolsList = symbols.ToList();
+            
+            // Subscribe to ticker price updates for multiple symbols
+            var subscriptionResult = await _socketClient.UsdFuturesApi.ExchangeData.SubscribeToTickerUpdatesAsync(
+                symbolsList,
+                data =>
+                {
+                    var symbol = data.Data.Symbol;
+                    var price = data.Data.LastPrice;
+                    
+                    _logger.LogDebug($"Price update: {symbol} = {price}");
+                    onPriceUpdate?.Invoke(symbol, price);
+                }
+            );
+
+            if (subscriptionResult.Success)
+            {
+                _logger.LogInformation($"Successfully subscribed to price updates for {symbolsList.Count} symbols");
+                return subscriptionResult.Data;
+            }
+            else
+            {
+                _logger.LogError($"Price WebSocket subscription error: {subscriptionResult.Error?.Message}");
+                return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error while subscribing to price updates");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Get historical Kline data for the last 120 minutes for SOL/USDT pair on Futures market
     /// </summary>
     public async Task<List<KlineData>> GetHistoricalKlinesAsync(string symbol = "SOLUSDT", int minutes = 120)
