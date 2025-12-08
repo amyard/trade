@@ -11,6 +11,9 @@ builder.Configuration.AddJsonFile("pairs.json", optional: false, reloadOnChange:
 // Configure TradingPairsConfig from JSON
 builder.Services.Configure<TradingPairsConfig>(builder.Configuration);
 
+// Configure TelegramConfig from appsettings
+builder.Services.Configure<TelegramConfig>(builder.Configuration.GetSection("Telegram"));
+
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -33,6 +36,9 @@ builder.Services.AddScoped<BinanceFuturesService>();
 
 // Register Trading Pairs service
 builder.Services.AddSingleton<TradingPairsService>();
+
+// Register Telegram Bot service
+builder.Services.AddSingleton<TelegramBotService>();
 
 var app = builder.Build();
 

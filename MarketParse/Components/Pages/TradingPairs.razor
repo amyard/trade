@@ -94,7 +94,7 @@
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetPrice(x.Symbol))">Current Price (USDT)</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetRsi(x.Symbol))">RSI(14)</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetVolume(x.Symbol))">24h Volume (USDT)</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => (object)GetTradeCount(x.Symbol))">24h Trades</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetTradeCount(x.Symbol))">24h Trades</MudTableSortLabel></MudTh>
                 <MudTh>Update Priority</MudTh>
                 <MudTh>Action</MudTh>
             </HeaderContent>
