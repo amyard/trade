@@ -3,6 +3,7 @@ using Binance.Net.Interfaces;
 using CryptoExchange.Net.Sockets;
 using CryptoExchange.Net.Objects.Sockets;
 using Binance.Net.Enums;
+using Skender.Stock.Indicators;
 
 namespace MarketParse.Services;
 
@@ -387,6 +388,94 @@ public class BinanceFuturesService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error while getting 24h volumes");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Calculate RSI for a symbol using recent kline data
+    /// </summary>
+    public async Task<decimal?> CalculateRsiAsync(string symbol, int period = 14)
+    {
+        try
+        {
+            // Get enough candles to calculate RSI properly
+            // RSI needs at least period + 1 candles, but we get more for accuracy (warmup period)
+            var limit = 200; // Get 200 candles for proper RSI calculation
+            
+            // Use 1-minute candles as requested
+            var klines = await GetKlineDataAsync(symbol, KlineInterval.OneMinute, limit: limit);
+            
+            if (klines == null || klines.Count < period + 1)
+            {
+                _logger.LogWarning($"Not enough data to calculate RSI for {symbol}. Got {klines?.Count ?? 0} candles, need at least {period + 1}");
+                return null;
+            }
+
+            // Convert to Quote format for Skender library
+            var quotes = klines.Select(k => new Quote
+            {
+                Date = k.OpenTime,
+                Open = k.Open,
+                High = k.High,
+                Low = k.Low,
+                Close = k.Close,  // RSI source is Close price
+                Volume = k.Volume
+            }).OrderBy(q => q.Date).ToList();
+
+            // Calculate RSI with period 14
+            var rsiResults = quotes.GetRsi(period).ToList();
+            
+            // Get the latest RSI value that has a valid result
+            var latestRsi = rsiResults.LastOrDefault(r => r.Rsi.HasValue);
+
+            if (latestRsi?.Rsi != null)
+            {
+                _logger.LogDebug($"RSI for {symbol}: {latestRsi.Rsi.Value:F2} (Date: {latestRsi.Date})");
+                return (decimal)latestRsi.Rsi.Value;
+            }
+
+            _logger.LogWarning($"No valid RSI calculated for {symbol}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error calculating RSI for {symbol}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Calculate RSI for multiple symbols
+    /// </summary>
+    public async Task<Dictionary<string, decimal>> CalculateRsiForSymbolsAsync(IEnumerable<string> symbols, int period = 14)
+    {
+        var result = new Dictionary<string, decimal>();
+        
+        try
+        {
+            var tasks = symbols.Select(async symbol =>
+            {
+                var rsi = await CalculateRsiAsync(symbol, period);
+                return new { Symbol = symbol, Rsi = rsi };
+            });
+
+            var results = await Task.WhenAll(tasks);
+
+            foreach (var item in results)
+            {
+                if (item.Rsi.HasValue)
+                {
+                    result[item.Symbol] = item.Rsi.Value;
+                }
+            }
+
+            _logger.LogInformation($"Calculated RSI for {result.Count} symbols");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error calculating RSI for multiple symbols");
         }
 
         return result;

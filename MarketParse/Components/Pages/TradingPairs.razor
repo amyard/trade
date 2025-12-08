@@ -92,6 +92,7 @@
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => x.Symbol)">Symbol</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => (int)x.Priority)">Priority</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetPrice(x.Symbol))">Current Price (USDT)</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetRsi(x.Symbol))">RSI(14)</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetVolume(x.Symbol))">24h Volume (USDT)</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => (object)GetTradeCount(x.Symbol))">24h Trades</MudTableSortLabel></MudTh>
                 <MudTh>Update Priority</MudTh>
@@ -120,6 +121,28 @@
                         <MudText Typo="Typo.body2" Color="@(priceClass == "price-up" ? Color.Success : priceClass == "price-down" ? Color.Error : Color.Primary)">
                             <strong>$@price.ToString("N2")</strong>
                         </MudText>
+                    }
+                    else if (isLoadingPrices)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">-</MudText>
+                    }
+                </MudTd>
+                <MudTd DataLabel="RSI(14)">
+                    @if (rsiValues.TryGetValue(context.Symbol, out var rsi))
+                    {
+                        var rsiColor = rsi switch
+                        {
+                            >= 70 => Color.Error,
+                            <= 30 => Color.Success,
+                            _ => Color.Default
+                        };
+                        <MudChip T="string" Color="@rsiColor" Size="Size.Small">
+                            @rsi.ToString("N2")
+                        </MudChip>
                     }
                     else if (isLoadingPrices)
                     {
@@ -227,6 +250,7 @@
     private ConcurrentDictionary<string, decimal> prices = new();
     private ConcurrentDictionary<string, decimal> volumes = new();
     private ConcurrentDictionary<string, long> tradeCounts = new();
+    private ConcurrentDictionary<string, decimal> rsiValues = new();
     private ConcurrentDictionary<string, decimal> previousPrices = new();
     private ConcurrentDictionary<string, DateTime> priceChangeTime = new();
     private string searchString = string.Empty;
@@ -296,21 +320,24 @@
         {
             var symbols = allPairs.Select(p => p.Symbol).ToList();
             
-            // Load prices, volumes and trade counts in parallel
+            // Load prices, volumes, trade counts and RSI in parallel
             var pricesTask = BinanceService.GetCurrentPricesAsync(symbols);
             var volumesTask = BinanceService.Get24HourVolumesAsync(symbols);
             var tradeCountsTask = BinanceService.Get24HourTradeCountsAsync(symbols);
+            var rsiTask = BinanceService.CalculateRsiForSymbolsAsync(symbols, 14);
             
-            await Task.WhenAll(pricesTask, volumesTask, tradeCountsTask);
+            await Task.WhenAll(pricesTask, volumesTask, tradeCountsTask, rsiTask);
             
             var pricesResult = await pricesTask;
             var volumesResult = await volumesTask;
             var tradeCountsResult = await tradeCountsTask;
+            var rsiResult = await rsiTask;
             
             // Clear and update concurrent dictionaries
             prices.Clear();
             volumes.Clear();
             tradeCounts.Clear();
+            rsiValues.Clear();
             
             foreach (var kvp in pricesResult)
                 prices.TryAdd(kvp.Key, kvp.Value);
@@ -321,13 +348,16 @@
             foreach (var kvp in tradeCountsResult)
                 tradeCounts.TryAdd(kvp.Key, kvp.Value);
             
+            foreach (var kvp in rsiResult)
+                rsiValues.TryAdd(kvp.Key, kvp.Value);
+            
             lastUpdateTime = DateTime.Now;
             
-            Logger.LogInformation($"Loaded prices, volumes and trade counts for {prices.Count} trading pairs");
+            Logger.LogInformation($"Loaded prices, volumes, trade counts and RSI for {prices.Count} trading pairs");
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading prices, volumes and trade counts");
+            Logger.LogError(ex, "Error loading prices, volumes, trade counts and RSI");
         }
         finally
         {
@@ -420,6 +450,24 @@
             priceChangeTime.AddOrUpdate(symbol, DateTime.Now, (key, existing) => DateTime.Now);
             lastUpdateTime = DateTime.Now;
 
+            // Recalculate RSI asynchronously when price updates
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var rsi = await BinanceService.CalculateRsiAsync(symbol, 14);
+                    if (rsi.HasValue)
+                    {
+                        rsiValues.AddOrUpdate(symbol, rsi.Value, (key, existing) => rsi.Value);
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Error recalculating RSI for {Symbol}", symbol);
+                }
+            });
+
             // Update UI
             _ = InvokeAsync(StateHasChanged);
 
@@ -459,6 +507,11 @@
     private decimal GetPrice(string symbol)
     {
         return prices.TryGetValue(symbol, out var price) ? price : 0m;
+    }
+
+    private decimal GetRsi(string symbol)
+    {
+        return rsiValues.TryGetValue(symbol, out var rsi) ? rsi : 0m;
     }
 
     private decimal GetVolume(string symbol)
