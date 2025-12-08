@@ -15,6 +15,7 @@ public class BinanceWebSocketBackgroundService : BackgroundService
     private readonly TradingPairsConfig _config;
     private readonly RSISimpleStrategy _rsiStrategy;
     private readonly TelegramBotService _telegramService;
+    private readonly VolumeFilterService _volumeFilterService;
     private readonly IServiceProvider _serviceProvider;
     
     // Store candle data for each symbol (keep last 50 candles for RSI calculation)
@@ -25,21 +26,27 @@ public class BinanceWebSocketBackgroundService : BackgroundService
     // Track valid and invalid symbols
     private readonly HashSet<string> _validSymbols = new();
     private readonly HashSet<string> _invalidSymbols = new();
+    private readonly HashSet<string> _lowVolumeSymbols = new();
     
     // WebSocket subscription
     private UpdateSubscription? _subscription;
     
     // Timer for periodic RSI checks
     private Timer? _rsiCheckTimer;
+    
+    // Timer for periodic volume checks
+    private Timer? _volumeCheckTimer;
 
     public BinanceWebSocketBackgroundService(
         ILogger<BinanceWebSocketBackgroundService> logger,
         IOptions<TradingPairsConfig> config,
         IOptions<RSIStrategyConfig> rsiConfig,
+        VolumeFilterService volumeFilterService,
         IServiceProvider serviceProvider)
     {
         _logger = logger;
         _config = config.Value;
+        _volumeFilterService = volumeFilterService;
         _serviceProvider = serviceProvider;
         
         // Get singleton services
@@ -48,7 +55,7 @@ public class BinanceWebSocketBackgroundService : BackgroundService
         // Create RSI strategy with configuration
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         var rsiLogger = loggerFactory.CreateLogger<RSISimpleStrategy>();
-        _rsiStrategy = new RSISimpleStrategy(_telegramService, rsiLogger, rsiConfig);
+        _rsiStrategy = new RSISimpleStrategy(_telegramService, rsiLogger, rsiConfig, volumeFilterService);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -77,6 +84,15 @@ public class BinanceWebSocketBackgroundService : BackgroundService
             }
 
             _logger.LogInformation($"Processing {symbols.Count} trading pairs from configuration (Futures)...");
+
+            // Filter by volume (24h check)
+            symbols = await _volumeFilterService.FilterByVolumeAsync(symbols, stoppingToken);
+            
+            if (symbols.Count == 0)
+            {
+                _logger.LogError("No symbols passed volume filter. Service will not start monitoring.");
+                return;
+            }
 
             // Initialize candle data storage
             foreach (var symbol in symbols)
@@ -115,6 +131,22 @@ public class BinanceWebSocketBackgroundService : BackgroundService
                 TimeSpan.FromSeconds(1)
             );
 
+            // Start timer for volume checks (hourly)
+            var volumeConfig = _serviceProvider.GetRequiredService<IOptions<VolumeFilterConfig>>().Value;
+            if (volumeConfig.Enabled)
+            {
+                var checkInterval = TimeSpan.FromHours(volumeConfig.CheckIntervalHours);
+                _volumeCheckTimer = new Timer(
+                    async _ => await CheckVolumesAndUpdateSymbols(stoppingToken),
+                    null,
+                    checkInterval,
+                    checkInterval
+                );
+                
+                _logger.LogInformation(
+                    $"Volume check timer started: checking every {volumeConfig.CheckIntervalHours} hour(s)");
+            }
+
             _logger.LogInformation(
                 $"? Background service started successfully. Monitoring {_validSymbols.Count} pairs for RSI alerts (Futures, checking every 1 second)");
 
@@ -140,7 +172,101 @@ public class BinanceWebSocketBackgroundService : BackgroundService
         {
             // Cleanup
             _rsiCheckTimer?.Dispose();
+            _volumeCheckTimer?.Dispose();
             await UnsubscribeAllAsync();
+        }
+    }
+
+    /// <summary>
+    /// Periodically check volumes and update the list of monitored symbols
+    /// </summary>
+    private async Task CheckVolumesAndUpdateSymbols(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("?? Starting periodic volume check...");
+
+            // Get all configured symbols
+            var allSymbols = _config.TradingPairs.Select(p => p.Symbol.ToLowerInvariant()).ToList();
+            
+            // Check volumes
+            var symbolsPassingVolumeCheck = await _volumeFilterService.FilterByVolumeAsync(
+                allSymbols, 
+                cancellationToken);
+
+            var previousValidCount = _validSymbols.Count;
+            var newSymbols = new List<string>();
+            var removedSymbols = new List<string>();
+
+            lock (_lockObject)
+            {
+                // Find symbols that now have sufficient volume but weren't monitored before
+                foreach (var symbol in symbolsPassingVolumeCheck)
+                {
+                    var symbolUpper = symbol.ToUpperInvariant();
+                    if (!_validSymbols.Contains(symbol.ToLowerInvariant()) && 
+                        !_invalidSymbols.Contains(symbol.ToLowerInvariant()))
+                    {
+                        newSymbols.Add(symbol);
+                        _lowVolumeSymbols.Remove(symbol.ToLowerInvariant());
+                    }
+                }
+
+                // Find symbols that no longer meet volume requirements
+                var symbolsSet = new HashSet<string>(symbolsPassingVolumeCheck);
+                foreach (var validSymbol in _validSymbols.ToList())
+                {
+                    if (!symbolsSet.Contains(validSymbol))
+                    {
+                        removedSymbols.Add(validSymbol);
+                        _validSymbols.Remove(validSymbol);
+                        _lowVolumeSymbols.Add(validSymbol);
+                        
+                        // Remove candle data for this symbol
+                        var symbolUpper = validSymbol.ToUpperInvariant();
+                        if (_candleData.ContainsKey(symbolUpper))
+                        {
+                            _candleData.Remove(symbolUpper);
+                        }
+                    }
+                }
+            }
+
+            // Load historical data and subscribe to new symbols
+            if (newSymbols.Count > 0)
+            {
+                _logger.LogInformation($"?? Adding {newSymbols.Count} new symbols that now meet volume threshold");
+                
+                // Initialize candle data storage for new symbols
+                foreach (var symbol in newSymbols)
+                {
+                    _candleData[symbol.ToUpperInvariant()] = new List<KlineData>();
+                }
+                
+                await LoadHistoricalDataAsync(newSymbols, cancellationToken);
+                
+                // Resubscribe to WebSocket with updated symbol list
+                await ResubscribeToWebSocketAsync(cancellationToken);
+            }
+
+            if (removedSymbols.Count > 0)
+            {
+                _logger.LogInformation(
+                    $"?? Removed {removedSymbols.Count} symbols due to insufficient volume: " +
+                    string.Join(", ", removedSymbols.Select(s => s.ToUpperInvariant())));
+                
+                // Resubscribe to WebSocket with updated symbol list
+                await ResubscribeToWebSocketAsync(cancellationToken);
+            }
+
+            var currentValidCount = _validSymbols.Count;
+            _logger.LogInformation(
+                $"? Volume check complete: {currentValidCount} active symbols " +
+                $"(+{newSymbols.Count}, -{removedSymbols.Count})");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during periodic volume check");
         }
     }
 
@@ -180,6 +306,38 @@ public class BinanceWebSocketBackgroundService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error in CheckRsiForAllSymbols");
+        }
+    }
+
+    /// <summary>
+    /// Resubscribe to WebSocket with current valid symbols
+    /// </summary>
+    private async Task ResubscribeToWebSocketAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("?? Resubscribing to WebSocket with updated symbol list...");
+            
+            // Unsubscribe from current connection
+            await UnsubscribeAllAsync();
+            
+            // Wait a bit before reconnecting
+            await Task.Delay(1000, cancellationToken);
+            
+            // Subscribe with new symbol list
+            var validSymbolsList = _validSymbols.ToList();
+            if (validSymbolsList.Count > 0)
+            {
+                await SubscribeToKlineUpdatesAsync(validSymbolsList, cancellationToken);
+            }
+            else
+            {
+                _logger.LogWarning("No valid symbols to subscribe to WebSocket");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resubscribing to WebSocket");
         }
     }
 
@@ -411,6 +569,7 @@ public class BinanceWebSocketBackgroundService : BackgroundService
         _logger.LogInformation("?? Binance WebSocket Background Service is stopping...");
         
         _rsiCheckTimer?.Dispose();
+        _volumeCheckTimer?.Dispose();
         await UnsubscribeAllAsync();
         
         _logger.LogInformation("? Background service stopped successfully");

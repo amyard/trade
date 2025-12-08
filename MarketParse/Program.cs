@@ -17,6 +17,9 @@ builder.Services.Configure<TelegramConfig>(builder.Configuration.GetSection("Tel
 // Configure RSI Strategy settings from appsettings
 builder.Services.Configure<RSIStrategyConfig>(builder.Configuration.GetSection("RSIStrategy"));
 
+// Configure Volume Filter settings from appsettings
+builder.Services.Configure<VolumeFilterConfig>(builder.Configuration.GetSection("VolumeFilter"));
+
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -42,6 +45,9 @@ builder.Services.AddSingleton<TradingPairsService>();
 
 // Register Telegram Bot service
 builder.Services.AddSingleton<TelegramBotService>();
+
+// Register Volume Filter service
+builder.Services.AddSingleton<VolumeFilterService>();
 
 // Register Background Service for WebSocket monitoring
 builder.Services.AddHostedService<BinanceWebSocketBackgroundService>();

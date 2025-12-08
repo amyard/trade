@@ -13,6 +13,7 @@ public class RSISimpleStrategy
     private readonly TelegramBotService _telegramService;
     private readonly ILogger<RSISimpleStrategy> _logger;
     private readonly RSIStrategyConfig _config;
+    private readonly VolumeFilterService _volumeFilterService;
     
     // Track last alert time to avoid spamming (thread-safe)
     private readonly ConcurrentDictionary<string, DateTime> _lastAlertTime = new();
@@ -20,11 +21,13 @@ public class RSISimpleStrategy
     public RSISimpleStrategy(
         TelegramBotService telegramService, 
         ILogger<RSISimpleStrategy> logger,
-        IOptions<RSIStrategyConfig> config)
+        IOptions<RSIStrategyConfig> config,
+        VolumeFilterService volumeFilterService)
     {
         _telegramService = telegramService;
         _logger = logger;
         _config = config.Value;
+        _volumeFilterService = volumeFilterService;
         
         _logger.LogInformation(
             $"RSI Strategy initialized: Period={_config.Period}, " +
@@ -91,12 +94,18 @@ public class RSISimpleStrategy
                 var condition = rsiValue > _config.UpperThreshold ? "Overbought" : "Oversold";
                 var emoji = rsiValue > _config.UpperThreshold ? "??" : "??";
                 
-                var message = $"{emoji} <b>RSI Alert - {condition}</b>\n\n" +
+                // Get 24h volume from cache
+                var volume24h = _volumeFilterService.GetCachedVolume(symbol);
+                var volumeInfo = volume24h.HasValue 
+                    ? $"<b>24h Volume:</b> ${volume24h.Value:N0} USDT\n" 
+                    : "";
+                
+                var message = $"{emoji} <b>RSI Simple Alert - {condition}</b>\n\n" +
                              $"<b>Symbol:</b> {symbol}\n" +
                              $"<b>RSI Value:</b> {rsiValue:F2}\n" +
                              $"<b>Current Price:</b> ${currentPrice:F4}\n" +
-                             $"<b>Time:</b> {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC\n\n" +
-                             $"Threshold: {(rsiValue > _config.UpperThreshold ? $"Above {_config.UpperThreshold}" : $"Below {_config.LowerThreshold}")}";
+                             volumeInfo +
+                             $"<b>Time:</b> {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC";
 
                 var sent = await _telegramService.SendMessageAsync(message);
                 
