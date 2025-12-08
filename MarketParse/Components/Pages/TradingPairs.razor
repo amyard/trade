@@ -3,6 +3,7 @@
 @using global::MarketParse.Services
 @using global::MarketParse.Models
 @using CryptoExchange.Net.Objects.Sockets
+@using System.Collections.Concurrent
 @inject TradingPairsService TradingPairsService
 @inject BinanceFuturesService BinanceService
 @inject NavigationManager Navigation
@@ -223,11 +224,11 @@
 
 @code {
     private List<TradingPair> allPairs = new();
-    private Dictionary<string, decimal> prices = new();
-    private Dictionary<string, decimal> volumes = new();
-    private Dictionary<string, long> tradeCounts = new();
-    private Dictionary<string, decimal> previousPrices = new();
-    private Dictionary<string, DateTime> priceChangeTime = new();
+    private ConcurrentDictionary<string, decimal> prices = new();
+    private ConcurrentDictionary<string, decimal> volumes = new();
+    private ConcurrentDictionary<string, long> tradeCounts = new();
+    private ConcurrentDictionary<string, decimal> previousPrices = new();
+    private ConcurrentDictionary<string, DateTime> priceChangeTime = new();
     private string searchString = string.Empty;
     private bool isLoadingPrices = false;
     private bool isWebSocketConnected = false;
@@ -302,9 +303,24 @@
             
             await Task.WhenAll(pricesTask, volumesTask, tradeCountsTask);
             
-            prices = await pricesTask;
-            volumes = await volumesTask;
-            tradeCounts = await tradeCountsTask;
+            var pricesResult = await pricesTask;
+            var volumesResult = await volumesTask;
+            var tradeCountsResult = await tradeCountsTask;
+            
+            // Clear and update concurrent dictionaries
+            prices.Clear();
+            volumes.Clear();
+            tradeCounts.Clear();
+            
+            foreach (var kvp in pricesResult)
+                prices.TryAdd(kvp.Key, kvp.Value);
+            
+            foreach (var kvp in volumesResult)
+                volumes.TryAdd(kvp.Key, kvp.Value);
+            
+            foreach (var kvp in tradeCountsResult)
+                tradeCounts.TryAdd(kvp.Key, kvp.Value);
+            
             lastUpdateTime = DateTime.Now;
             
             Logger.LogInformation($"Loaded prices, volumes and trade counts for {prices.Count} trading pairs");
@@ -396,12 +412,12 @@
             // Store previous price for comparison
             if (prices.TryGetValue(symbol, out var oldPrice))
             {
-                previousPrices[symbol] = oldPrice;
+                previousPrices.AddOrUpdate(symbol, oldPrice, (key, existing) => oldPrice);
             }
 
-            // Update price
-            prices[symbol] = newPrice;
-            priceChangeTime[symbol] = DateTime.Now;
+            // Update price using thread-safe method
+            prices.AddOrUpdate(symbol, newPrice, (key, existing) => newPrice);
+            priceChangeTime.AddOrUpdate(symbol, DateTime.Now, (key, existing) => DateTime.Now);
             lastUpdateTime = DateTime.Now;
 
             // Update UI
@@ -413,7 +429,7 @@
                 {
                     if (!_disposed && !(_cts?.Token.IsCancellationRequested ?? true))
                     {
-                        priceChangeTime.Remove(symbol);
+                        priceChangeTime.TryRemove(symbol, out DateTime _);
                         _ = InvokeAsync(StateHasChanged);
                     }
                 }, TaskScheduler.Default);
