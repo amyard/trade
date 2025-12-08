@@ -1,5 +1,6 @@
 using MarketParse.Models;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace MarketParse.Services;
 
@@ -10,12 +11,17 @@ public class TradingPairsService
 {
     private readonly List<TradingPair> _tradingPairs = new();
     private readonly ILogger<TradingPairsService> _logger;
+    private readonly IWebHostEnvironment _environment;
+    private readonly string _pairsJsonPath;
 
     public TradingPairsService(
         IOptions<TradingPairsConfig> config,
-        ILogger<TradingPairsService> logger)
+        ILogger<TradingPairsService> logger,
+        IWebHostEnvironment environment)
     {
         _logger = logger;
+        _environment = environment;
+        _pairsJsonPath = Path.Combine(_environment.ContentRootPath, "pairs.json");
         
         // Load trading pairs from configuration
         var tradingPairsConfig = config.Value;
@@ -76,5 +82,52 @@ public class TradingPairsService
                 p.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                 (p.FullName != null && p.FullName.Contains(query, StringComparison.OrdinalIgnoreCase)))
             .ToList();
+    }
+
+    /// <summary>
+    /// Update priority for a trading pair and save to pairs.json
+    /// </summary>
+    public async Task<bool> UpdatePriorityAsync(string symbol, Priority newPriority)
+    {
+        try
+        {
+            // Update in memory
+            var pair = _tradingPairs.FirstOrDefault(p => 
+                p.Symbol.Equals(symbol, StringComparison.OrdinalIgnoreCase));
+            
+            if (pair == null)
+            {
+                _logger.LogWarning($"Trading pair {symbol} not found");
+                return false;
+            }
+
+            pair.Priority = newPriority;
+
+            // Save to pairs.json
+            var config = new TradingPairsConfig
+            {
+                TradingPairs = _tradingPairs.Select(p => new TradingPairInfo
+                {
+                    Symbol = p.Symbol,
+                    Priority = p.Priority
+                }).ToList()
+            };
+
+            var options = new JsonSerializerOptions
+            {
+                WriteIndented = true
+            };
+
+            var jsonString = JsonSerializer.Serialize(config, options);
+            await File.WriteAllTextAsync(_pairsJsonPath, jsonString);
+
+            _logger.LogInformation($"Updated priority for {symbol} to {newPriority} and saved to pairs.json");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error updating priority for {symbol}");
+            return false;
+        }
     }
 }

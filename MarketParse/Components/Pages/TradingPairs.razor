@@ -74,7 +74,6 @@
                   LoadingProgressColor="Color.Primary"
                   Filter="new Func<TradingPair, bool>(FilterFunc)"
                   @bind-SelectedItem="selectedPair"
-                  OnRowClick="OnRowClick"
                   T="TradingPair">
             <ToolBarContent>
                 <MudText Typo="Typo.h6">Trading Pairs</MudText>
@@ -94,6 +93,7 @@
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetPrice(x.Symbol))">Current Price (USDT)</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetVolume(x.Symbol))">24h Volume (USDT)</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => (object)GetTradeCount(x.Symbol))">24h Trades</MudTableSortLabel></MudTh>
+                <MudTh>Update Priority</MudTh>
                 <MudTh>Action</MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -157,6 +157,15 @@
                         <MudText Typo="Typo.body2" Color="Color.Secondary">-</MudText>
                     }
                 </MudTd>
+                <MudTd DataLabel="Update Priority">
+                    <MudButton Variant="Variant.Outlined" 
+                               Color="Color.Secondary" 
+                               Size="Size.Small" 
+                               OnClick="@(() => OpenPriorityDialog(context))"
+                               StartIcon="@Icons.Material.Filled.Edit">
+                        Update
+                    </MudButton>
+                </MudTd>
                 <MudTd DataLabel="Action">
                     <MudButton Variant="Variant.Filled" 
                                Color="Color.Primary" 
@@ -174,6 +183,44 @@
     }
 </MudContainer>
 
+<MudOverlay Visible="showPriorityDialog" DarkBackground="true" ZIndex="9999">
+    <MudPaper Class="pa-6" Style="width: 400px; max-width: 90vw;">
+        <MudText Typo="Typo.h6" Class="mb-4">Update Priority for @(selectedPairForPriority?.Symbol ?? "")</MudText>
+        
+        <MudSelect @bind-Value="selectedPriorityValue" T="Priority" Label="Select Priority" Variant="Variant.Outlined" Class="mb-4">
+            <MudSelectItem Value="Priority.High">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudChip T="string" Color="Color.Error" Size="Size.Small">High</MudChip>
+                    <MudText>High Priority</MudText>
+                </MudStack>
+            </MudSelectItem>
+            <MudSelectItem Value="Priority.Average">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudChip T="string" Color="Color.Warning" Size="Size.Small">Average</MudChip>
+                    <MudText>Average Priority</MudText>
+                </MudStack>
+            </MudSelectItem>
+            <MudSelectItem Value="Priority.Low">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudChip T="string" Color="Color.Info" Size="Size.Small">Low</MudChip>
+                    <MudText>Low Priority</MudText>
+                </MudStack>
+            </MudSelectItem>
+            <MudSelectItem Value="Priority.None">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudChip T="string" Color="Color.Default" Size="Size.Small">None</MudChip>
+                    <MudText>No Priority</MudText>
+                </MudStack>
+            </MudSelectItem>
+        </MudSelect>
+        
+        <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
+            <MudButton OnClick="ClosePriorityDialog">Cancel</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SavePriority">Save</MudButton>
+        </MudStack>
+    </MudPaper>
+</MudOverlay>
+
 @code {
     private List<TradingPair> allPairs = new();
     private Dictionary<string, decimal> prices = new();
@@ -190,6 +237,10 @@
     private CancellationTokenSource? _cts;
     private bool _disposed = false;
 
+    private bool showPriorityDialog = false;
+    private TradingPair? selectedPairForPriority;
+    private Priority selectedPriorityValue;
+
     protected override async Task OnInitializedAsync()
     {
         _cts = new CancellationTokenSource();
@@ -197,6 +248,40 @@
         
         // Auto-start real-time updates
         await StartRealtimePrices();
+    }
+
+    private void OpenPriorityDialog(TradingPair pair)
+    {
+        selectedPairForPriority = pair;
+        selectedPriorityValue = pair.Priority;
+        showPriorityDialog = true;
+    }
+
+    private void ClosePriorityDialog()
+    {
+        showPriorityDialog = false;
+        selectedPairForPriority = null;
+    }
+
+    private async Task SavePriority()
+    {
+        if (selectedPairForPriority != null)
+        {
+            var success = await TradingPairsService.UpdatePriorityAsync(
+                selectedPairForPriority.Symbol, 
+                selectedPriorityValue);
+            
+            if (success)
+            {
+                Logger.LogInformation($"Successfully updated priority for {selectedPairForPriority.Symbol} to {selectedPriorityValue}");
+                StateHasChanged();
+            }
+            else
+            {
+                Logger.LogError($"Failed to update priority for {selectedPairForPriority.Symbol}");
+            }
+        }
+        ClosePriorityDialog();
     }
 
     private async Task LoadPrices()
