@@ -14,6 +14,9 @@ builder.Services.Configure<TradingPairsConfig>(builder.Configuration);
 // Configure TelegramConfig from appsettings
 builder.Services.Configure<TelegramConfig>(builder.Configuration.GetSection("Telegram"));
 
+// Configure RSI Strategy settings from appsettings
+builder.Services.Configure<RSIStrategyConfig>(builder.Configuration.GetSection("RSIStrategy"));
+
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -39,6 +42,9 @@ builder.Services.AddSingleton<TradingPairsService>();
 
 // Register Telegram Bot service
 builder.Services.AddSingleton<TelegramBotService>();
+
+// Register Background Service for WebSocket monitoring
+builder.Services.AddHostedService<BinanceWebSocketBackgroundService>();
 
 var app = builder.Build();
 
