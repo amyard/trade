@@ -1,35 +1,46 @@
 using MarketParse.Models;
+using Microsoft.Extensions.Options;
 
 namespace MarketParse.Services;
 
 /// <summary>
-/// Service for managing trading pairs list
+/// Service for managing trading pairs list from configuration
 /// </summary>
 public class TradingPairsService
 {
-    private static readonly List<TradingPair> _tradingPairs = new()
+    private readonly List<TradingPair> _tradingPairs = new();
+    private readonly ILogger<TradingPairsService> _logger;
+
+    public TradingPairsService(
+        IOptions<TradingPairsConfig> config,
+        ILogger<TradingPairsService> logger)
     {
-        new TradingPair("BTCUSDT", "BTC", "USDT"),
-        new TradingPair("ETHUSDT", "ETH", "USDT"),
-        new TradingPair("SOLUSDT", "SOL", "USDT"),
-        new TradingPair("BNBUSDT", "BNB", "USDT"),
-        new TradingPair("XRPUSDT", "XRP", "USDT"),
-        new TradingPair("ADAUSDT", "ADA", "USDT"),
-        new TradingPair("DOGEUSDT", "DOGE", "USDT"),
-        new TradingPair("MATICUSDT", "MATIC", "USDT"),
-        new TradingPair("DOTUSDT", "DOT", "USDT"),
-        new TradingPair("LTCUSDT", "LTC", "USDT"),
-        new TradingPair("AVAXUSDT", "AVAX", "USDT"),
-        new TradingPair("LINKUSDT", "LINK", "USDT"),
-        new TradingPair("ATOMUSDT", "ATOM", "USDT"),
-        new TradingPair("ETCUSDT", "ETC", "USDT"),
-        new TradingPair("UNIUSDT", "UNI", "USDT"),
-        new TradingPair("AIAUSDT", "AIA", "USDT"),
-        new TradingPair("SHIBUSDT", "SHIB", "USDT"),
-        new TradingPair("APTUSDT", "APT", "USDT"),
-        new TradingPair("ARBUSDT", "ARB", "USDT"),
-        new TradingPair("OPUSDT", "OP", "USDT")
-    };
+        _logger = logger;
+        
+        // Load trading pairs from configuration
+        var tradingPairsConfig = config.Value;
+        
+        if (tradingPairsConfig?.TradingPairs != null)
+        {
+            _tradingPairs = tradingPairsConfig.TradingPairs
+                .Select(p =>
+                {
+                    var baseAsset = p.Symbol.Replace("USDT", "");
+                    return new TradingPair(
+                        p.Symbol,
+                        baseAsset,
+                        "USDT",
+                        baseAsset); // Use baseAsset as FullName
+                })
+                .ToList();
+            
+            _logger.LogInformation($"Loaded {_tradingPairs.Count} trading pairs from pairs.json");
+        }
+        else
+        {
+            _logger.LogWarning("No trading pairs found in configuration, using empty list");
+        }
+    }
 
     /// <summary>
     /// Get all trading pairs
@@ -61,7 +72,8 @@ public class TradingPairsService
             .Where(p => 
                 p.Symbol.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                 p.BaseAsset.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                p.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase))
+                p.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                (p.FullName != null && p.FullName.Contains(query, StringComparison.OrdinalIgnoreCase)))
             .ToList();
     }
 }

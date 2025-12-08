@@ -1,7 +1,14 @@
 using MarketParse.Components;
 using MarketParse.Services;
+using MarketParse.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add configuration files
+builder.Configuration.AddJsonFile("pairs.json", optional: false, reloadOnChange: true);
+
+// Configure TradingPairsConfig from JSON
+builder.Services.Configure<TradingPairsConfig>(builder.Configuration);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()

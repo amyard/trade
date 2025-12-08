@@ -9,12 +9,14 @@ public class TradingPair
     public string BaseAsset { get; set; } = string.Empty;
     public string QuoteAsset { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    public string? FullName { get; set; }
     
-    public TradingPair(string symbol, string baseAsset, string quoteAsset)
+    public TradingPair(string symbol, string baseAsset, string quoteAsset, string? fullName = null)
     {
         Symbol = symbol;
         BaseAsset = baseAsset;
         QuoteAsset = quoteAsset;
         DisplayName = $"{baseAsset}/{quoteAsset}";
+        FullName = fullName;
     }
 }
