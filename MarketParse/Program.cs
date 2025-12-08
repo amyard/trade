@@ -1,6 +1,7 @@
 using MarketParse.Components;
 using MarketParse.Services;
 using MarketParse.Models;
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +14,19 @@ builder.Services.Configure<TradingPairsConfig>(builder.Configuration);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// Add MudBlazor services
+builder.Services.AddMudServices();
+
+// Configure Blazor Server with detailed errors in development
+builder.Services.AddServerSideBlazor()
+    .AddCircuitOptions(options =>
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            options.DetailedErrors = true;
+        }
+    });
 
 // Register Binance Futures service
 builder.Services.AddScoped<BinanceFuturesService>();

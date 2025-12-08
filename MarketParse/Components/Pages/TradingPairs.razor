@@ -7,227 +7,148 @@
 @inject BinanceFuturesService BinanceService
 @inject NavigationManager Navigation
 @inject ILogger<TradingPairs> Logger
-@implements IDisposable
+@implements IAsyncDisposable
 
 <PageTitle>Trading Pairs</PageTitle>
 
-<h1>Trading Pairs</h1>
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+    <MudText Typo="Typo.h3" Class="mb-4">Trading Pairs</MudText>
 
-<div class="mb-3">
-    <div class="row">
-        <div class="col-md-6">
-            <input type="text" 
-                   class="form-control" 
-                   placeholder="Search trading pairs..." 
-                   @bind="searchQuery" 
-                   @bind:event="oninput"
-                   @onkeyup="FilterPairs" />
-        </div>
-        <div class="col-md-6 d-flex align-items-center justify-content-end">
-            <span class="text-muted me-3">Total pairs: @filteredPairs.Count</span>
-            
-            @if (isWebSocketConnected)
-            {
-                <span class="badge bg-success me-2">
-                    <span class="live-indicator"></span> LIVE
-                </span>
-                <button class="btn btn-danger btn-sm me-2" @onclick="StopRealtimePrices">
-                    Stop Real-Time
-                </button>
-            }
-            else
-            {
-                <span class="badge bg-secondary me-2">
-                    Offline
-                </span>
-                <button class="btn btn-success btn-sm me-2" @onclick="StartRealtimePrices" disabled="@isLoadingPrices">
+    <MudPaper Class="pa-4 mb-4">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                @if (isWebSocketConnected)
+                {
+                    <MudChip T="string" Color="Color.Success" Icon="@Icons.Material.Filled.Wifi" Size="Size.Small">LIVE</MudChip>
+                    <MudButton Variant="Variant.Filled" Color="Color.Error" Size="Size.Small" OnClick="StopRealtimePrices">
+                        Stop Real-Time
+                    </MudButton>
+                }
+                else
+                {
+                    <MudChip T="string" Color="Color.Default" Icon="@Icons.Material.Filled.WifiOff" Size="Size.Small">Offline</MudChip>
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small" OnClick="StartRealtimePrices" Disabled="@isLoadingPrices">
+                        @if (isLoadingPrices)
+                        {
+                            <MudProgressCircular Class="mr-2" Size="Size.Small" Indeterminate="true" />
+                        }
+                        Start Real-Time
+                    </MudButton>
+                }
+                
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="LoadPrices" Disabled="@isLoadingPrices" StartIcon="@Icons.Material.Filled.Refresh">
                     @if (isLoadingPrices)
                     {
-                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        <MudProgressCircular Class="mr-2" Size="Size.Small" Indeterminate="true" />
                     }
-                    Start Real-Time
-                </button>
+                    Refresh
+                </MudButton>
+            </MudStack>
+
+            @if (lastUpdateTime.HasValue)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Last updated: @lastUpdateTime.Value.ToString("HH:mm:ss")
+                </MudText>
             }
-            
-            <button class="btn btn-primary btn-sm" @onclick="LoadPrices" disabled="@isLoadingPrices">
-                @if (isLoadingPrices)
-                {
-                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                }
-                Refresh
-            </button>
-        </div>
-    </div>
-</div>
+        </MudStack>
+    </MudPaper>
 
-@if (isLoadingPrices && prices.Count == 0)
-{
-    <div class="text-center my-5">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
-        <p class="mt-2">Loading prices...</p>
-    </div>
-}
-else if (filteredPairs.Any())
-{
-    <div class="table-responsive">
-        <table class="table table-hover">
-            <thead class="table-light">
-                <tr>
-                    <th>#</th>
-                    <th>Symbol</th>
-                    <th>Pair</th>
-                    <th class="text-end">Current Price (USDT)</th>
-                    <th class="text-center">Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                @{
-                    int index = 1;
-                }
-                @foreach (var pair in filteredPairs)
-                {
-                    var hasPrice = prices.TryGetValue(pair.Symbol, out var price);
-                    var priceClass = GetPriceChangeClass(pair.Symbol);
-                    
-                    <tr class="trading-pair-row" @onclick="() => NavigateToPairDetails(pair.Symbol)">
-                        <td>@index</td>
-                        <td><strong>@pair.Symbol</strong></td>
-                        <td>
-                            <span class="badge bg-secondary">@pair.BaseAsset</span>
-                            <span class="mx-1">/</span>
-                            <span class="badge bg-info">@pair.QuoteAsset</span>
-                        </td>
-                        <td class="text-end">
-                            @if (hasPrice)
-                            {
-                                <span class="price-value @priceClass">
-                                    $@price.ToString("N2")
-                                </span>
-                            }
-                            else if (isLoadingPrices)
-                            {
-                                <span class="spinner-border spinner-border-sm" role="status"></span>
-                            }
-                            else
-                            {
-                                <span class="text-muted">-</span>
-                            }
-                        </td>
-                        <td class="text-center">
-                            <button class="btn btn-primary btn-sm" @onclick:stopPropagation="true" @onclick="() => NavigateToPairDetails(pair.Symbol)">
-                                View Details
-                            </button>
-                        </td>
-                    </tr>
-                    index++;
-                }
-            </tbody>
-        </table>
-    </div>
-
-    <div class="d-flex justify-content-between align-items-center mt-2">
-        @if (lastUpdateTime.HasValue)
-        {
-            <div class="text-muted small">
-                Last updated: @lastUpdateTime.Value.ToString("HH:mm:ss")
-            </div>
-        }
-        @if (isWebSocketConnected)
-        {
-            <div class="text-success small">
-                <i class="bi bi-wifi"></i> Real-time updates active
-            </div>
-        }
-    </div>
-}
-else
-{
-    <div class="alert alert-info">
-        No trading pairs found matching "@searchQuery"
-    </div>
-}
-
-<style>
-    .trading-pair-row {
-        cursor: pointer;
-        transition: background-color 0.2s;
+    @if (isLoadingPrices && prices.Count == 0)
+    {
+        <MudPaper Class="pa-8">
+            <MudStack AlignItems="AlignItems.Center" Spacing="3">
+                <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+                <MudText Typo="Typo.h6">Loading prices...</MudText>
+            </MudStack>
+        </MudPaper>
     }
-
-    .trading-pair-row:hover {
-        background-color: rgba(0, 123, 255, 0.05);
+    else
+    {
+        <MudTable Items="@allPairs" 
+                  Dense="true" 
+                  Hover="true" 
+                  Striped="true" 
+                  Breakpoint="Breakpoint.Sm"
+                  Loading="@isLoadingPrices" 
+                  LoadingProgressColor="Color.Primary"
+                  Filter="new Func<TradingPair, bool>(FilterFunc)"
+                  @bind-SelectedItem="selectedPair"
+                  OnRowClick="OnRowClick"
+                  T="TradingPair">
+            <ToolBarContent>
+                <MudText Typo="Typo.h6">Trading Pairs</MudText>
+                <MudSpacer />
+                <MudTextField @bind-Value="searchString" 
+                              Placeholder="Search pairs..." 
+                              Adornment="Adornment.Start" 
+                              AdornmentIcon="@Icons.Material.Filled.Search" 
+                              IconSize="Size.Medium" 
+                              Class="mt-0"
+                              Immediate="true"
+                              Clearable="true"></MudTextField>
+            </ToolBarContent>
+            <HeaderContent>
+                <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => x.Symbol)">Symbol</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetPrice(x.Symbol))">Current Price (USDT)</MudTableSortLabel></MudTh>
+                <MudTh>Action</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Symbol">
+                    <MudText Typo="Typo.body2"><strong>@context.Symbol</strong></MudText>
+                </MudTd>
+                <MudTd DataLabel="Current Price">
+                    @if (prices.TryGetValue(context.Symbol, out var price))
+                    {
+                        var priceClass = GetPriceChangeClass(context.Symbol);
+                        <MudText Typo="Typo.body2" Color="@(priceClass == "price-up" ? Color.Success : priceClass == "price-down" ? Color.Error : Color.Primary)">
+                            <strong>$@price.ToString("N2")</strong>
+                        </MudText>
+                    }
+                    else if (isLoadingPrices)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">-</MudText>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Action">
+                    <MudButton Variant="Variant.Filled" 
+                               Color="Color.Primary" 
+                               Size="Size.Small" 
+                               OnClick="@(() => NavigateToPairDetails(context.Symbol))"
+                               StartIcon="@Icons.Material.Filled.TrendingUp">
+                        View Details
+                    </MudButton>
+                </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new int[]{10, 25, 50, 100}" />
+            </PagerContent>
+        </MudTable>
     }
-
-    .price-value {
-        font-weight: 600;
-        font-size: 1.1rem;
-        color: #0d6efd;
-        transition: all 0.3s ease;
-    }
-
-    .price-up {
-        color: #28a745 !important;
-        animation: priceFlashGreen 0.5s ease;
-    }
-
-    .price-down {
-        color: #dc3545 !important;
-        animation: priceFlashRed 0.5s ease;
-    }
-
-    @@keyframes priceFlashGreen {
-        0%, 100% { background-color: transparent; }
-        50% { background-color: rgba(40, 167, 69, 0.2); }
-    }
-
-    @@keyframes priceFlashRed {
-        0%, 100% { background-color: transparent; }
-        50% { background-color: rgba(220, 53, 69, 0.2); }
-    }
-
-    .badge {
-        font-size: 0.85rem;
-        padding: 0.35rem 0.65rem;
-    }
-
-    .table th {
-        font-weight: 600;
-        border-bottom: 2px solid #dee2e6;
-    }
-
-    .live-indicator {
-        display: inline-block;
-        width: 8px;
-        height: 8px;
-        background-color: white;
-        border-radius: 50%;
-        animation: pulse 1.5s ease-in-out infinite;
-        margin-right: 5px;
-    }
-
-    @@keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.3; }
-    }
-</style>
+</MudContainer>
 
 @code {
     private List<TradingPair> allPairs = new();
-    private List<TradingPair> filteredPairs = new();
     private Dictionary<string, decimal> prices = new();
     private Dictionary<string, decimal> previousPrices = new();
     private Dictionary<string, DateTime> priceChangeTime = new();
-    private string searchQuery = string.Empty;
+    private string searchString = string.Empty;
     private bool isLoadingPrices = false;
     private bool isWebSocketConnected = false;
     private DateTime? lastUpdateTime;
     private UpdateSubscription? priceSubscription;
+    private TradingPair? selectedPair;
+    private CancellationTokenSource? _cts;
+    private bool _disposed = false;
 
     protected override async Task OnInitializedAsync()
     {
+        _cts = new CancellationTokenSource();
         allPairs = TradingPairsService.GetAllTradingPairs();
-        filteredPairs = allPairs;
         
         // Auto-start real-time updates
         await StartRealtimePrices();
@@ -235,6 +156,8 @@ else
 
     private async Task LoadPrices()
     {
+        if (_disposed) return;
+        
         isLoadingPrices = true;
         StateHasChanged();
 
@@ -253,13 +176,16 @@ else
         finally
         {
             isLoadingPrices = false;
-            StateHasChanged();
+            if (!_disposed)
+            {
+                StateHasChanged();
+            }
         }
     }
 
     private async Task StartRealtimePrices()
     {
-        if (isWebSocketConnected)
+        if (isWebSocketConnected || _disposed)
             return;
 
         isLoadingPrices = true;
@@ -270,11 +196,13 @@ else
             // Load initial prices first
             await LoadPrices();
 
+            if (_disposed) return;
+
             // Subscribe to real-time price updates
             var symbols = allPairs.Select(p => p.Symbol).ToList();
             priceSubscription = await BinanceService.SubscribeToPriceUpdatesAsync(symbols, OnPriceUpdate);
 
-            if (priceSubscription is not null)
+            if (priceSubscription is not null && !_disposed)
             {
                 isWebSocketConnected = true;
                 Logger.LogInformation("Real-time price updates started automatically");
@@ -287,7 +215,10 @@ else
         finally
         {
             isLoadingPrices = false;
-            StateHasChanged();
+            if (!_disposed)
+            {
+                StateHasChanged();
+            }
         }
     }
 
@@ -295,37 +226,62 @@ else
     {
         if (priceSubscription is not null)
         {
-            await BinanceService.UnsubscribeAsync(priceSubscription);
-            priceSubscription = null;
-            isWebSocketConnected = false;
-            Logger.LogInformation("Real-time price updates stopped");
-            StateHasChanged();
+            try
+            {
+                await BinanceService.UnsubscribeAsync(priceSubscription);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error stopping real-time price updates");
+            }
+            finally
+            {
+                priceSubscription = null;
+                isWebSocketConnected = false;
+                Logger.LogInformation("Real-time price updates stopped");
+                if (!_disposed)
+                {
+                    StateHasChanged();
+                }
+            }
         }
     }
 
     private void OnPriceUpdate(string symbol, decimal newPrice)
     {
-        // Store previous price for comparison
-        if (prices.TryGetValue(symbol, out var oldPrice))
+        if (_disposed) return;
+
+        try
         {
-            previousPrices[symbol] = oldPrice;
+            // Store previous price for comparison
+            if (prices.TryGetValue(symbol, out var oldPrice))
+            {
+                previousPrices[symbol] = oldPrice;
+            }
+
+            // Update price
+            prices[symbol] = newPrice;
+            priceChangeTime[symbol] = DateTime.Now;
+            lastUpdateTime = DateTime.Now;
+
+            // Update UI
+            _ = InvokeAsync(StateHasChanged);
+
+            // Clear price change indicator after 1 second
+            _ = Task.Delay(1000, _cts?.Token ?? CancellationToken.None)
+                .ContinueWith(_ =>
+                {
+                    if (!_disposed && !(_cts?.Token.IsCancellationRequested ?? true))
+                    {
+                        priceChangeTime.Remove(symbol);
+                        _ = InvokeAsync(StateHasChanged);
+                    }
+                }, TaskScheduler.Default);
         }
-
-        // Update price
-        prices[symbol] = newPrice;
-        priceChangeTime[symbol] = DateTime.Now;
-        lastUpdateTime = DateTime.Now;
-
-        // Update UI
-        InvokeAsync(StateHasChanged);
-
-        // Clear price change indicator after 1 second
-        _ = Task.Run(async () =>
+        catch (Exception ex)
         {
-            await Task.Delay(1000);
-            priceChangeTime.Remove(symbol);
-            await InvokeAsync(StateHasChanged);
-        });
+            Logger.LogError(ex, "Error in OnPriceUpdate for symbol {Symbol}", symbol);
+        }
     }
 
     private string GetPriceChangeClass(string symbol)
@@ -344,17 +300,33 @@ else
         return string.Empty;
     }
 
-    private void FilterPairs()
+    private decimal GetPrice(string symbol)
     {
-        if (string.IsNullOrWhiteSpace(searchQuery))
-        {
-            filteredPairs = allPairs;
-        }
-        else
-        {
-            filteredPairs = TradingPairsService.SearchTradingPairs(searchQuery);
-        }
-        StateHasChanged();
+        return prices.TryGetValue(symbol, out var price) ? price : 0m;
+    }
+
+    private bool FilterFunc(TradingPair pair)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+
+        if (pair.Symbol.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (pair.BaseAsset.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (pair.QuoteAsset.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (pair.DisplayName.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (!string.IsNullOrEmpty(pair.FullName) && pair.FullName.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    private void OnRowClick(TableRowClickEventArgs<TradingPair> args)
+    {
+        NavigateToPairDetails(args.Item.Symbol);
     }
 
     private void NavigateToPairDetails(string symbol)
@@ -362,11 +334,20 @@ else
         Navigation.NavigateTo($"/trading-pair/{symbol}");
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
+        
+        _disposed = true;
+        
+        // Cancel all pending tasks
+        _cts?.Cancel();
+        _cts?.Dispose();
+        
+        // Stop WebSocket subscription
         if (priceSubscription is not null)
         {
-            _ = StopRealtimePrices();
+            await StopRealtimePrices();
         }
     }
 }
