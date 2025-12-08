@@ -91,6 +91,7 @@
             <HeaderContent>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => x.Symbol)">Symbol</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetPrice(x.Symbol))">Current Price (USDT)</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetTradeCount(x.Symbol))">24h Trades</MudTableSortLabel></MudTh>
                 <MudTh>Action</MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -104,6 +105,20 @@
                         <MudText Typo="Typo.body2" Color="@(priceClass == "price-up" ? Color.Success : priceClass == "price-down" ? Color.Error : Color.Primary)">
                             <strong>$@price.ToString("N2")</strong>
                         </MudText>
+                    }
+                    else if (isLoadingPrices)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">-</MudText>
+                    }
+                </MudTd>
+                <MudTd DataLabel="24h Trades">
+                    @if (tradeCounts.TryGetValue(context.Symbol, out var count))
+                    {
+                        <MudText Typo="Typo.body2">@count.ToString("N0")</MudText>
                     }
                     else if (isLoadingPrices)
                     {
@@ -134,6 +149,7 @@
 @code {
     private List<TradingPair> allPairs = new();
     private Dictionary<string, decimal> prices = new();
+    private Dictionary<string, long> tradeCounts = new();
     private Dictionary<string, decimal> previousPrices = new();
     private Dictionary<string, DateTime> priceChangeTime = new();
     private string searchString = string.Empty;
@@ -164,14 +180,22 @@
         try
         {
             var symbols = allPairs.Select(p => p.Symbol).ToList();
-            prices = await BinanceService.GetCurrentPricesAsync(symbols);
+            
+            // Load prices and trade counts in parallel
+            var pricesTask = BinanceService.GetCurrentPricesAsync(symbols);
+            var tradeCountsTask = BinanceService.Get24HourTradeCountsAsync(symbols);
+            
+            await Task.WhenAll(pricesTask, tradeCountsTask);
+            
+            prices = await pricesTask;
+            tradeCounts = await tradeCountsTask;
             lastUpdateTime = DateTime.Now;
             
-            Logger.LogInformation($"Loaded prices for {prices.Count} trading pairs");
+            Logger.LogInformation($"Loaded prices and trade counts for {prices.Count} trading pairs");
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading prices");
+            Logger.LogError(ex, "Error loading prices and trade counts");
         }
         finally
         {
@@ -303,6 +327,11 @@
     private decimal GetPrice(string symbol)
     {
         return prices.TryGetValue(symbol, out var price) ? price : 0m;
+    }
+
+    private long GetTradeCount(string symbol)
+    {
+        return tradeCounts.TryGetValue(symbol, out var count) ? count : 0;
     }
 
     private bool FilterFunc(TradingPair pair)

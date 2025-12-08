@@ -94,7 +94,7 @@ public class BinanceFuturesService
             var symbolsList = symbols.ToList();
             
             // Subscribe to ticker price updates for multiple symbols
-            var subscriptionResult = await _socketClient.UsdFuturesApi.ExchangeData.SubscribeToTickerUpdatesAsync(
+            var subscriptionResult = await _socketClient.UsdFuturesApi.SubscribeToTickerUpdatesAsync(
                 symbolsList,
                 data =>
                 {
@@ -204,7 +204,7 @@ public class BinanceFuturesService
         try
         {
             // Subscribe to 1-minute Kline updates via WebSocket for USD-M Futures
-            var subscriptionResult = await _socketClient.UsdFuturesApi.ExchangeData.SubscribeToKlineUpdatesAsync(
+            var subscriptionResult = await _socketClient.UsdFuturesApi.SubscribeToKlineUpdatesAsync(
                 symbol: symbol,
                 interval: Binance.Net.Enums.KlineInterval.OneMinute,
                 onMessage: data =>
@@ -259,6 +259,72 @@ public class BinanceFuturesService
             await subscription.CloseAsync();
             _logger.LogInformation("WebSocket subscription closed");
         }
+    }
+
+    /// <summary>
+    /// Get 24-hour trade count for a symbol
+    /// </summary>
+    public async Task<long?> Get24HourTradeCountAsync(string symbol)
+    {
+        try
+        {
+            // Get 24h statistics which includes trade count
+            var tickerResult = await _restClient.UsdFuturesApi.ExchangeData.GetTickerAsync(symbol);
+            
+            if (tickerResult.Success && tickerResult.Data != null)
+            {
+                // IBinance24HPrice contains Volume property which represents trade count
+                return (long)tickerResult.Data.Volume;
+            }
+            else
+            {
+                _logger.LogError($"Error getting 24h trade count for {symbol}: {tickerResult.Error?.Message}");
+                return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error while getting 24h trade count for {symbol}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Get 24-hour trade counts for multiple symbols
+    /// </summary>
+    public async Task<Dictionary<string, long>> Get24HourTradeCountsAsync(IEnumerable<string> symbols)
+    {
+        var result = new Dictionary<string, long>();
+
+        try
+        {
+            var tickersResult = await _restClient.UsdFuturesApi.ExchangeData.GetTickersAsync();
+            
+            if (tickersResult.Success && tickersResult.Data != null)
+            {
+                foreach (var symbol in symbols)
+                {
+                    var ticker = tickersResult.Data.FirstOrDefault(t => t.Symbol == symbol);
+                    if (ticker != null)
+                    {
+                        // Use volume as trade count approximation
+                        result[symbol] = (long)ticker.Volume;
+                    }
+                }
+                
+                _logger.LogInformation($"Retrieved 24h trade counts for {result.Count} symbols");
+            }
+            else
+            {
+                _logger.LogError($"Error getting 24h trade counts: {tickersResult.Error?.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error while getting 24h trade counts");
+        }
+
+        return result;
     }
 
     public void Dispose()
