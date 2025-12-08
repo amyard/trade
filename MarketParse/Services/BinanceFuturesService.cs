@@ -327,6 +327,71 @@ public class BinanceFuturesService
         return result;
     }
 
+    /// <summary>
+    /// Get 24-hour volume in USDT for a symbol
+    /// </summary>
+    public async Task<decimal?> Get24HourVolumeAsync(string symbol)
+    {
+        try
+        {
+            var tickerResult = await _restClient.UsdFuturesApi.ExchangeData.GetTickerAsync(symbol);
+            
+            if (tickerResult.Success && tickerResult.Data != null)
+            {
+                // QuoteVolume represents the volume in quote currency (USDT)
+                return tickerResult.Data.QuoteVolume;
+            }
+            else
+            {
+                _logger.LogError($"Error getting 24h volume for {symbol}: {tickerResult.Error?.Message}");
+                return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error while getting 24h volume for {symbol}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Get 24-hour volumes in USDT for multiple symbols
+    /// </summary>
+    public async Task<Dictionary<string, decimal>> Get24HourVolumesAsync(IEnumerable<string> symbols)
+    {
+        var result = new Dictionary<string, decimal>();
+
+        try
+        {
+            var tickersResult = await _restClient.UsdFuturesApi.ExchangeData.GetTickersAsync();
+            
+            if (tickersResult.Success && tickersResult.Data != null)
+            {
+                foreach (var symbol in symbols)
+                {
+                    var ticker = tickersResult.Data.FirstOrDefault(t => t.Symbol == symbol);
+                    if (ticker != null)
+                    {
+                        // QuoteVolume is the volume in USDT
+                        result[symbol] = ticker.QuoteVolume;
+                    }
+                }
+                
+                _logger.LogInformation($"Retrieved 24h volumes for {result.Count} symbols");
+            }
+            else
+            {
+                _logger.LogError($"Error getting 24h volumes: {tickersResult.Error?.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error while getting 24h volumes");
+        }
+
+        return result;
+    }
+
     public void Dispose()
     {
         _restClient?.Dispose();

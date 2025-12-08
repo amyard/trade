@@ -91,7 +91,8 @@
             <HeaderContent>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => x.Symbol)">Symbol</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetPrice(x.Symbol))">Current Price (USDT)</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetTradeCount(x.Symbol))">24h Trades</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetVolume(x.Symbol))">24h Volume (USDT)</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => (object)GetTradeCount(x.Symbol))">24h Trades</MudTableSortLabel></MudTh>
                 <MudTh>Action</MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -105,6 +106,20 @@
                         <MudText Typo="Typo.body2" Color="@(priceClass == "price-up" ? Color.Success : priceClass == "price-down" ? Color.Error : Color.Primary)">
                             <strong>$@price.ToString("N2")</strong>
                         </MudText>
+                    }
+                    else if (isLoadingPrices)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">-</MudText>
+                    }
+                </MudTd>
+                <MudTd DataLabel="24h Volume">
+                    @if (volumes.TryGetValue(context.Symbol, out var volume))
+                    {
+                        <MudText Typo="Typo.body2">$@FormatVolume(volume)</MudText>
                     }
                     else if (isLoadingPrices)
                     {
@@ -149,6 +164,7 @@
 @code {
     private List<TradingPair> allPairs = new();
     private Dictionary<string, decimal> prices = new();
+    private Dictionary<string, decimal> volumes = new();
     private Dictionary<string, long> tradeCounts = new();
     private Dictionary<string, decimal> previousPrices = new();
     private Dictionary<string, DateTime> priceChangeTime = new();
@@ -181,21 +197,23 @@
         {
             var symbols = allPairs.Select(p => p.Symbol).ToList();
             
-            // Load prices and trade counts in parallel
+            // Load prices, volumes and trade counts in parallel
             var pricesTask = BinanceService.GetCurrentPricesAsync(symbols);
+            var volumesTask = BinanceService.Get24HourVolumesAsync(symbols);
             var tradeCountsTask = BinanceService.Get24HourTradeCountsAsync(symbols);
             
-            await Task.WhenAll(pricesTask, tradeCountsTask);
+            await Task.WhenAll(pricesTask, volumesTask, tradeCountsTask);
             
             prices = await pricesTask;
+            volumes = await volumesTask;
             tradeCounts = await tradeCountsTask;
             lastUpdateTime = DateTime.Now;
             
-            Logger.LogInformation($"Loaded prices and trade counts for {prices.Count} trading pairs");
+            Logger.LogInformation($"Loaded prices, volumes and trade counts for {prices.Count} trading pairs");
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading prices and trade counts");
+            Logger.LogError(ex, "Error loading prices, volumes and trade counts");
         }
         finally
         {
@@ -329,9 +347,25 @@
         return prices.TryGetValue(symbol, out var price) ? price : 0m;
     }
 
+    private decimal GetVolume(string symbol)
+    {
+        return volumes.TryGetValue(symbol, out var volume) ? volume : 0m;
+    }
+
     private long GetTradeCount(string symbol)
     {
         return tradeCounts.TryGetValue(symbol, out var count) ? count : 0;
+    }
+
+    private string FormatVolume(decimal volume)
+    {
+        if (volume >= 1_000_000_000)
+            return $"{(volume / 1_000_000_000):N2}B";
+        if (volume >= 1_000_000)
+            return $"{(volume / 1_000_000):N2}M";
+        if (volume >= 1_000)
+            return $"{(volume / 1_000):N2}K";
+        return volume.ToString("N2");
     }
 
     private bool FilterFunc(TradingPair pair)
