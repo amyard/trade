@@ -90,6 +90,7 @@
             </ToolBarContent>
             <HeaderContent>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => x.Symbol)">Symbol</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => (int)x.Priority)">Priority</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetPrice(x.Symbol))">Current Price (USDT)</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => GetVolume(x.Symbol))">24h Volume (USDT)</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<TradingPair, object>(x => (object)GetTradeCount(x.Symbol))">24h Trades</MudTableSortLabel></MudTh>
@@ -98,6 +99,18 @@
             <RowTemplate>
                 <MudTd DataLabel="Symbol">
                     <MudText Typo="Typo.body2"><strong>@context.Symbol</strong></MudText>
+                </MudTd>
+                <MudTd DataLabel="Priority">
+                    @{
+                        var priorityColor = context.Priority switch
+                        {
+                            Priority.High => Color.Error,
+                            Priority.Average => Color.Warning,
+                            Priority.Low => Color.Info,
+                            _ => Color.Default
+                        };
+                    }
+                    <MudChip T="string" Color="@priorityColor" Size="Size.Small">@context.Priority.ToString()</MudChip>
                 </MudTd>
                 <MudTd DataLabel="Current Price">
                     @if (prices.TryGetValue(context.Symbol, out var price))

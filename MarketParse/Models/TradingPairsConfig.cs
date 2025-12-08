@@ -14,4 +14,5 @@ public class TradingPairsConfig
 public class TradingPairInfo
 {
     public string Symbol { get; set; } = string.Empty;
+    public Priority Priority { get; set; } = Priority.None;
 }

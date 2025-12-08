@@ -30,7 +30,8 @@ public class TradingPairsService
                         p.Symbol,
                         baseAsset,
                         "USDT",
-                        baseAsset); // Use baseAsset as FullName
+                        baseAsset,
+                        p.Priority); // Pass Priority from configuration
                 })
                 .ToList();
             
