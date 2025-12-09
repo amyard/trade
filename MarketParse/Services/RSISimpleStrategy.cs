@@ -92,20 +92,20 @@ public class RSISimpleStrategy
             if (rsiValue > _config.UpperThreshold || rsiValue < _config.LowerThreshold)
             {
                 var condition = rsiValue > _config.UpperThreshold ? "Overbought" : "Oversold";
-                var emoji = rsiValue > _config.UpperThreshold ? "??" : "??";
+                var emoji = rsiValue > _config.UpperThreshold ? TradingEmojis.Status.GreenCircle : TradingEmojis.Status.RedCircle;
                 
                 // Get 24h volume from cache
                 var volume24h = _volumeFilterService.GetCachedVolume(symbol);
                 var volumeInfo = volume24h.HasValue 
-                    ? $"<b>24h Volume:</b> ${volume24h.Value:N0} USDT\n" 
+                    ? $"{HtmlTags.BoldOpen}24h Volume:{HtmlTags.BoldClose} ${volume24h.Value:N0} USDT{HtmlTags.LineBreak}" 
                     : "";
                 
-                var message = $"{emoji} <b>RSI Simple Alert - {condition}</b>\n\n" +
-                             $"<b>Symbol:</b> {symbol}\n" +
-                             $"<b>RSI Value:</b> {rsiValue:F2}\n" +
-                             $"<b>Current Price:</b> ${currentPrice:F4}\n" +
+                var message = $"{emoji} {HtmlTags.BoldOpen}RSI Simple Alert - {condition}{HtmlTags.BoldClose}{HtmlTags.LineBreak}{HtmlTags.LineBreak}" +
+                             $"{TradingEmojis.Charts.BarChart}{HtmlTags.BoldOpen}Symbol:{HtmlTags.BoldClose} {symbol}.P{HtmlTags.LineBreak}" +
+                             $"{HtmlTags.BoldOpen}RSI Value:{HtmlTags.BoldClose} {rsiValue:F2}{HtmlTags.LineBreak}" +
+                             $"{HtmlTags.BoldOpen}Current Price:{HtmlTags.BoldClose} ${currentPrice:F4}{HtmlTags.LineBreak}" +
                              volumeInfo +
-                             $"<b>Time:</b> {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC";
+                             $"{HtmlTags.BoldOpen}Time:{HtmlTags.BoldClose} {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC";
 
                 var sent = await _telegramService.SendMessageAsync(message);
                 

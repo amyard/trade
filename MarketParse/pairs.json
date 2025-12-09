@@ -379,6 +379,54 @@
     {
       "Symbol": "ZKUSDT",
       "Priority": 3
+    },
+    {
+      "Symbol": "LUNA2USDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "FHEUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "HYPERUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "1000LUNCUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "DEGENUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "WIFUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "BEATUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "LIGHTUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "POWERUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "VOXELUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "SKATEUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "1000CHEEMSUSDT",
+      "Priority": 3
     }
   ]
 }
