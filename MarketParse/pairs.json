@@ -427,6 +427,34 @@
     {
       "Symbol": "1000CHEEMSUSDT",
       "Priority": 3
+    },
+    {
+      "Symbol": "LRCUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "BARDUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "AIOTUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "ESPORTSUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "WETUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "NIGHTUSDT",
+      "Priority": 3
+    },
+    {
+      "Symbol": "PENGUUSDT",
+      "Priority": 3
     }
   ]
 }
